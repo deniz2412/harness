@@ -45,16 +45,24 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 — walking skeleton: code complete.** Remaining M0 exit check: compose up → run pr-review
-against the test PR → review comment lands → `/runs/{id}/events` populated → `/runs/{id}/verify`
-returns `intact: true`.
+**M0 ✅ and M1 ✅ — done and verified.** M0 exit check passed (`docs/m0-exit-check.md`); M1
+governance hardening shipped and its exit check passed on a cold rebuild (`docs/m1-exit-check.md`),
+review gate in `REVIEW.md`. What M1 landed: data-driven secret ruleset + real permission-ceiling
+enforcement; human-gate mechanics (pause/approve/reject/resume) on the `gate:` attribute; workflow
++prompt content-hash pinning (`WorkflowSha`); every tool call audited (`tool_call`/`tool_result`)
+and policed at one seam (`AuditedTool`), fail-closed against MAF's retry loop; EF migrations
+(replaced `EnsureCreated`); `harness-audit` CLI; a tamper-evident hash chain that binds event
+metadata + a per-run head anchor, with `Events` append-only at the DB; gateway spend/rate budgets;
+a STRIDE threat model (`docs/threat-model.md`). 163 offline tests.
 
-Then, in order (details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6):
-- **M1 — governance hardening:** real human-gate mechanics, gitleaks-style secret ruleset,
-  EF migrations (replace EnsureCreated), gateway budgets/rate limits, `audit verify` CLI,
-  STRIDE threat model.
+**Next: M2 — write path.** Do NOT start it without explicit go-ahead. Two M1 residuals feed it,
+tracked in `REVIEW.md`/`docs/threat-model.md`: auth + real initiator identity (F1) and a
+least-privilege DB runtime role (F4) should land as M2 gates the first externally-visible writes.
+
+Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
 - **M2 — write path:** `agent-loop`/`bash`/`gate` node executors, runner-container isolation,
   `test-generation.yaml` + `issue-to-pr.yaml` (end at PR, human-gated), golden-run eval harness.
+  Note: gate *mechanics* already exist (M1); M2 adds the `gate`/`agent-loop`/`bash` node *kinds*.
 - **M3 — multi-repo & search:** per-run `GitHubToolset` factory from `run.Repo` + repo allowlist
   in config (policy control), read-only `github.search_code`/`github.search_repos`. No repo creation.
 - **F1 — operations console** (after M2, ok parallel with M3): run list, event/audit viewer,

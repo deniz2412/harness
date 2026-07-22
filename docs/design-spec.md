@@ -3,8 +3,9 @@
 **Bank-owned AI coding harness on Microsoft Agent Framework (.NET), running on Docker Desktop**
 **Companion to:** AI-Harness-Analysis-and-Plan.md, Internal-Harness-Build-Analysis.md,
 Harness-Product-Vision-Roadmap.md (long-term horizons beyond M4)
-**Date:** 22 Jul 2026 · **Status:** v2.2 — local MVP scope; M0 code complete, verification pending.
-Copies of this doc live in the repo at `harness/docs/` — keep both in sync.
+**Date:** 23 Jul 2026 · **Status:** v2.3 — local MVP scope; **M0 ✅ and M1 ✅ complete and
+verified** (exit checks in `docs/m0-exit-check.md`, `docs/m1-exit-check.md`; review in `REVIEW.md`).
+Next: M2 (write path), not started. Copies of this doc live in the repo at `harness/docs/` — keep both in sync.
 
 ---
 
@@ -249,11 +250,17 @@ go to console/file locally; the exporter is config.
 PR comment posted → hash-chained audit events in Postgres.
 *Exit: a real PR gets a real AI review comment, fully audited, from a laptop.*
 
-**M1 — Governance hardening (≈2 wks).**
+**M1 — Governance hardening (≈2 wks). ✅ Complete (23 Jul 2026).**
 Policy pipeline (secret/PII scans, allowlists), human gate mechanics, audit chain verification
 command (`harness audit verify <run>`), budget limits at the gateway. **STRIDE threat model** run
 against this design (project skill); fixes folded in.
 *Exit: a compliance colleague can be walked through a run end-to-end and verify the chain.*
+Delivered: data-driven secret ruleset + permission-ceiling enforcement; gate pause/approve/reject/
+resume on the `gate:` attribute; workflow+prompt content-hash pinning; every tool call audited and
+policed at one fail-closed seam; EF migrations; `harness-audit` CLI; tamper-evident hash chain
+(metadata-bound + per-run head anchor, `Events` append-only at the DB); gateway budgets; threat
+model (`docs/threat-model.md`). Verified on a cold rebuild — see `docs/m1-exit-check.md`, `REVIEW.md`.
+PII redaction at the gateway and a least-privilege DB role are carried as tracked residuals (M2/graduation).
 
 **M2 — Write path + multi-workflow (≈3 wks).**
 `agent-loop`/`bash`/`gate` node kinds; runner-container isolation; `test-generation.yaml` and
