@@ -26,15 +26,20 @@ Full design: `../Option-B-Harness-Platform-Design-Spec.md` (read it before large
 
 ## Build & run
 - `dotnet build Harness.sln` · `dotnet test`
-- `docker compose -f docker/compose.yaml up --build` (needs `.env` from `.env.example`)
-- Known gap: this scaffold was authored without a compiler present.
+- `docker compose --env-file .env -f docker/compose.yaml up --build` (needs `.env` from `.env.example`)
+  `--env-file` is required: `-f docker/compose.yaml` makes `docker/` the project directory, so
+  Compose looks for `docker/.env` and silently ignores the `.env` at the repo root — every
+  `${VAR}` resolves to blank without it.
 
 ## Current status / next tasks (M0)
-1. `dotnet build` — fix any API drift, esp. `Harness.Agents/AgentNodeExecutor.cs` against MAF 1.6.1
-   (`CreateAIAgent` extension from Microsoft.Agents.AI.OpenAI; verify exact signature) and
-   `AIFunctionFactory.Create` overloads in ToolRegistry.
-2. Set GitHub owner/repo in `appsettings.json`; create test repo + fine-grained PAT.
+1. ~~`dotnet build` — fix MAF 1.6.1 API drift.~~ Done: the extension is `AsAIAgent`
+   (`OpenAI.Chat.OpenAIChatClientExtensions`), not `CreateAIAgent`. ToolRegistry needed no change.
+   Build and tests are clean; the gateway path is still unexercised.
+2. Create test repo + fine-grained PAT, then set `GITHUB_OWNER`/`GITHUB_REPO` in `.env`
+   (not `appsettings.json` — env overrides it, and startup now fails fast when either is blank).
 3. `docker compose up` → run pr-review against a real PR → verify `/runs/{id}/verify` chain intact.
+   NB: `gate:` and `output_schema:` are parsed into `NodeDefinition` but read by nothing, so this
+   run posts a live PR comment with only the secret scan in front of it. Use a throwaway repo.
 4. Then M1 (see design spec §5): gate mechanics, real secret ruleset, EF migrations, budgets.
 
 ## Conventions
