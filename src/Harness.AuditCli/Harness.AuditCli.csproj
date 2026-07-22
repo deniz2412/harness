@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>harness-audit</AssemblyName>
+    <RootNamespace>Harness.AuditCli</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Harness.Audit only: the whole point is verifying a chain without the API running. -->
+    <ProjectReference Include="../Harness.Audit/Harness.Audit.csproj" />
+  </ItemGroup>
+</Project>
