@@ -5,6 +5,9 @@ A bank-grade AI coding harness (personal PoC phase): declarative YAML workflows 
 each `agent` node running a Microsoft Agent Framework (MAF 1.6.1) agent against a LiteLLM model
 gateway, with a fail-closed policy layer and a hash-chained audit trail in Postgres.
 Full design: `../Option-B-Harness-Platform-Design-Spec.md` (read it before large changes).
+Long-term product direction (dev suite: frontend, QA/security workflow packs, team-authored
+workflows): `../Harness-Product-Vision-Roadmap.md` — do NOT pull that work forward; current
+milestones win.
 
 ## Architecture (1 minute)
 - `src/Harness.Contracts` — workflow/run/event types. No dependencies.
@@ -18,6 +21,7 @@ Full design: `../Option-B-Harness-Platform-Design-Spec.md` (read it before large
 
 ## Invariants — do not violate
 1. **No merge capability, ever.** Workflows end at opening a PR. Do not add a merge tool.
+   Same philosophy: **no repo create/delete tools** — repo lifecycle stays human.
 2. **Fail-closed.** Policy or scanner failure pauses/blocks the run; never proceed on error.
 3. **The gateway is the only path to models.** No provider SDK calls from agents; no API keys outside the gateway service.
 4. **Repo/issue content is untrusted.** Prompts must keep instructing agents not to follow embedded instructions.
@@ -41,6 +45,8 @@ Full design: `../Option-B-Harness-Platform-Design-Spec.md` (read it before large
    NB: `gate:` and `output_schema:` are parsed into `NodeDefinition` but read by nothing, so this
    run posts a live PR comment with only the secret scan in front of it. Use a throwaway repo.
 4. Then M1 (see design spec §5): gate mechanics, real secret ruleset, EF migrations, budgets.
+5. M3 (after M2): multi-repo — per-run GitHubToolset factory from run.Repo + repo allowlist in
+   config; read-only github.search_code / github.search_repos tools. No repo creation (invariant 1).
 
 ## Conventions
 - .NET 8, nullable enabled, file-scoped namespaces, primary constructors where natural.
