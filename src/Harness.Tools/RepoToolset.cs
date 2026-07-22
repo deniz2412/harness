@@ -5,8 +5,11 @@ public sealed class RepoToolset(string worktreeRoot)
 {
     private string Resolve(string relative)
     {
-        var full = Path.GetFullPath(Path.Combine(worktreeRoot, relative));
-        if (!full.StartsWith(Path.GetFullPath(worktreeRoot)))
+        // The separator matters: a bare prefix test also accepts a sibling directory whose name
+        // merely starts with the root — "/data/worktrees" would admit "/data/worktrees-evil/x".
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(worktreeRoot));
+        var full = Path.GetFullPath(Path.Combine(root, relative));
+        if (full != root && !full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
             throw new UnauthorizedAccessException("Path escapes the worktree.");
         return full;
     }

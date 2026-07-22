@@ -3,6 +3,7 @@
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.5.1" />
     <PackageReference Include="Octokit" Version="13.0.1" />
     <ProjectReference Include="../Harness.Contracts/Harness.Contracts.csproj" />
+    <ProjectReference Include="../Harness.Audit/Harness.Audit.csproj" />
     <ProjectReference Include="../Harness.Policy/Harness.Policy.csproj" />
   </ItemGroup>
 </Project>

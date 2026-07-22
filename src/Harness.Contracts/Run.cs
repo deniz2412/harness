@@ -23,7 +23,10 @@ public sealed class RunEvent
     public required Guid RunId { get; init; }
     public required long Seq { get; init; }
     public DateTimeOffset Ts { get; init; } = DateTimeOffset.UtcNow;
-    /// <summary>node_start | node_end | model_call | tool_call | gate_decision | policy_block</summary>
+    /// <summary>
+    /// node_start | node_end | model_call | tool_call | tool_result | gate_request |
+    /// gate_decision | policy_block
+    /// </summary>
     public required string Type { get; init; }
     public required string Node { get; init; }
     public required string PayloadHash { get; init; }  // sha256(prev_hash + payload) — hash chain

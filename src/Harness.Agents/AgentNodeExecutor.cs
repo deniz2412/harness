@@ -35,15 +35,26 @@ public sealed class AgentNodeExecutor(
             new ApiKeyCredential(gateway.ApiKey),
             new OpenAIClientOptions { Endpoint = new Uri(gateway.BaseUrl) });
 
+        // Tools carry the node's identity and permission envelope with them, so each call can be
+        // policed and audited at the point of invocation rather than trusted after the fact.
+        var toolCtx = new ToolCallContext(
+            ctx.Run.Id, ctx.Node.Id, ctx.Node.Tools, ctx.Workflow.Permissions);
+
         AIAgent agent = client.GetChatClient(model).AsAIAgent(
             instructions: prompt,
             name: ctx.Node.Id,
-            tools: tools.Resolve(ctx.Node.Tools));
+            tools: tools.Resolve(toolCtx));
 
         await audit.EmitAsync(ctx.Run.Id, "model_call", ctx.Node.Id,
             payload: $"model={model} tools=[{string.Join(",", ctx.Node.Tools)}]", ct);
 
         var response = await agent.RunAsync(input, cancellationToken: ct);
+
+        // The agent's own loop treats a failed tool call as recoverable, so a policy block can be
+        // absorbed into the conversation and the agent can finish "successfully" having been
+        // refused. Fail-closed means the node fails anyway.
+        toolCtx.ThrowIfLatched();
+
         var output = response.Text;
 
         // Pre-write scan: node outputs may be posted externally by downstream tools.
