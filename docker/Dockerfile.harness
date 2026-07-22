@@ -6,5 +6,9 @@ RUN dotnet publish src/Harness.Api/Harness.Api.csproj -c Release -o /out
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /out .
+# A fresh named volume inherits ownership from the image directory it masks. Without this the
+# volumes are created root-owned, the non-root `app` user cannot write audit payloads, and every
+# EmitAsync fails — which takes down the run before any node executes.
+RUN mkdir -p /data/audit-payloads /data/worktrees && chown -R app:app /data
 USER app
 ENTRYPOINT ["dotnet", "Harness.Api.dll"]

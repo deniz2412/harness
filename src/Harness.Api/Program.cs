@@ -72,8 +72,10 @@ using (var scope = app.Services.CreateScope())
 
 // --- endpoints ---
 app.MapPost("/runs", async (RunRequest req, WorkflowLoader loader, DagExecutor dag,
-    IDbContextFactory<HarnessDbContext> dbf, AuditEmitter audit, CancellationToken ct) =>
+    IDbContextFactory<HarnessDbContext> dbf, AuditEmitter audit, ILoggerFactory logs,
+    CancellationToken ct) =>
 {
+    var log = logs.CreateLogger("Harness.Run");
     var wf = loader.Load(req.Workflow);
     var run = new Run
     {
@@ -86,16 +88,27 @@ app.MapPost("/runs", async (RunRequest req, WorkflowLoader loader, DagExecutor d
     // M0: fire-and-forget; M1 moves this to a proper background queue
     _ = Task.Run(async () =>
     {
+        // Nothing observes this task, so anything not logged here is lost. A failing audit emit
+        // must not mask the error that triggered it — that combination produced a run with no
+        // events, no logs and no explanation.
+        async Task TryEmit(string type, string message)
+        {
+            try { await audit.EmitAsync(run.Id, type, "-", message, CancellationToken.None); }
+            catch (Exception ae) { log.LogCritical(ae, "Audit emit failed for run {RunId}", run.Id); }
+        }
+
         try { await dag.ExecuteAsync(run, wf, CancellationToken.None); }
         catch (PolicyViolationException pex)
         {
+            log.LogWarning(pex, "Run {RunId} policy-blocked", run.Id);
             run.Status = RunStatus.PolicyBlocked;
-            await audit.EmitAsync(run.Id, "policy_block", "-", pex.Message, CancellationToken.None);
+            await TryEmit("policy_block", pex.Message);
         }
         catch (Exception ex)
         {
+            log.LogError(ex, "Run {RunId} failed", run.Id);
             run.Status = RunStatus.Failed;
-            await audit.EmitAsync(run.Id, "node_end", "-", $"error: {ex.Message}", CancellationToken.None);
+            await TryEmit("node_end", $"error: {ex.Message}");
         }
         finally
         {

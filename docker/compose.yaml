@@ -16,7 +16,13 @@ services:
       - ../schemas:/app/schemas:ro
       - audit-payloads:/data/audit-payloads
       - worktrees:/data/worktrees
-    depends_on: [postgres, gateway]
+    # service_started is not enough for postgres: EnsureCreated() runs at boot with no retry, so
+    # the API loses the race against postgres init and dies on "connection refused".
+    depends_on:
+      postgres:
+        condition: service_healthy
+      gateway:
+        condition: service_started
 
   gateway:
     image: ghcr.io/berriai/litellm:main-stable
@@ -34,6 +40,12 @@ services:
       POSTGRES_DB: harness
       POSTGRES_USER: harness
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harness -d harness"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     volumes:
       - pg-data:/var/lib/postgresql/data
 
