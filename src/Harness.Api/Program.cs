@@ -5,14 +5,22 @@ using Harness.Engine;
 using Harness.Policy;
 using Harness.Tools;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Octokit;
 
 var builder = WebApplication.CreateBuilder(args);
 var cfg = builder.Configuration;
 
 // --- persistence ---
-builder.Services.AddDbContextFactory<HarnessDbContext>(o =>
-    o.UseNpgsql(cfg.GetConnectionString("Harness")));
+// The password comes from the environment only, so .env stays the single source of truth for
+// both this and the postgres container in docker/compose.yaml and the two cannot drift apart.
+var connection = new NpgsqlConnectionStringBuilder(cfg.GetConnectionString("Harness"))
+{
+    Password = Environment.GetEnvironmentVariable("POSTGRES_PASSWORD")
+        ?? throw new InvalidOperationException(
+            "POSTGRES_PASSWORD is not set. Copy .env.example to .env and fill it in.")
+}.ConnectionString;
+builder.Services.AddDbContextFactory<HarnessDbContext>(o => o.UseNpgsql(connection));
 
 // --- core services ---
 var paths = cfg.GetSection("Paths");
@@ -27,10 +35,23 @@ builder.Services.AddSingleton<PolicyPipeline>();
 builder.Services.AddSingleton(sp => new AuditEmitter(
     sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>(), paths["AuditPayloads"]!));
 builder.Services.AddSingleton(sp => new WorkflowLoader(paths["Workflows"]!));
+// Fail at startup rather than 404-ing mid-run: empty owner/repo are not null, so the tools would
+// otherwise happily call GitHub with a blank path. Env vars (GitHub__Owner) override appsettings.
+var githubOwner = cfg["GitHub:Owner"];
+var githubRepo = cfg["GitHub:Repo"];
+var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+if (string.IsNullOrWhiteSpace(githubOwner) || string.IsNullOrWhiteSpace(githubRepo))
+    throw new InvalidOperationException(
+        "GitHub:Owner and GitHub:Repo must be set, via appsettings.json or the "
+        + "GitHub__Owner / GitHub__Repo environment variables.");
+if (string.IsNullOrWhiteSpace(githubToken))
+    throw new InvalidOperationException(
+        "GITHUB_TOKEN is not set. Copy .env.example to .env and fill it in.");
+
 builder.Services.AddSingleton<IGitHubClient>(_ => new GitHubClient(new ProductHeaderValue("harness"))
-    { Credentials = new Credentials(Environment.GetEnvironmentVariable("GITHUB_TOKEN")) });
+    { Credentials = new Credentials(githubToken) });
 builder.Services.AddSingleton(sp => new GitHubToolset(
-    sp.GetRequiredService<IGitHubClient>(), cfg["GitHub:Owner"]!, cfg["GitHub:Repo"]!));
+    sp.GetRequiredService<IGitHubClient>(), githubOwner, githubRepo));
 builder.Services.AddSingleton(sp => new RepoToolset(paths["Worktrees"]!));
 builder.Services.AddSingleton<ToolRegistry>();
 builder.Services.AddSingleton<INodeExecutor>(sp => new AgentNodeExecutor(

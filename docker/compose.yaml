@@ -7,6 +7,9 @@ services:
       ASPNETCORE_URLS: http://0.0.0.0:8080
       GITHUB_TOKEN: ${GITHUB_TOKEN}
       GATEWAY_MASTER_KEY: ${GATEWAY_MASTER_KEY}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      GitHub__Owner: ${GITHUB_OWNER}
+      GitHub__Repo: ${GITHUB_REPO}
     volumes:
       - ../workflows:/app/workflows:ro
       - ../prompts:/app/prompts:ro
