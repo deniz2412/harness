@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.6.1" />
+    <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.6.1" />
+    <ProjectReference Include="../Harness.Engine/Harness.Engine.csproj" />
+    <ProjectReference Include="../Harness.Tools/Harness.Tools.csproj" />
+  </ItemGroup>
+</Project>

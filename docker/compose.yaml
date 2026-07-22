@@ -1,0 +1,40 @@
+name: harness
+services:
+  harness:
+    build: { context: .., dockerfile: docker/Dockerfile.harness }
+    ports: ["8080:8080"]
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      GATEWAY_MASTER_KEY: ${GATEWAY_MASTER_KEY}
+    volumes:
+      - ../workflows:/app/workflows:ro
+      - ../prompts:/app/prompts:ro
+      - ../schemas:/app/schemas:ro
+      - audit-payloads:/data/audit-payloads
+      - worktrees:/data/worktrees
+    depends_on: [postgres, gateway]
+
+  gateway:
+    image: ghcr.io/berriai/litellm:main-stable
+    ports: ["4000:4000"]                      # exposed locally for debugging only
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY} # the ONLY service that sees the key
+      LITELLM_MASTER_KEY: ${GATEWAY_MASTER_KEY}
+    volumes:
+      - ./gateway-config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: harness
+      POSTGRES_USER: harness
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+volumes:
+  pg-data:
+  audit-payloads:
+  worktrees:

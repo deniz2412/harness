@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
+    <ProjectReference Include="../Harness.Contracts/Harness.Contracts.csproj" />
+    <ProjectReference Include="../Harness.Audit/Harness.Audit.csproj" />
+    <ProjectReference Include="../Harness.Policy/Harness.Policy.csproj" />
+  </ItemGroup>
+</Project>

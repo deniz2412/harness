@@ -1,0 +1,24 @@
+name: pr-review
+description: Review a pull request against coding standards. Read-mostly; only writes a PR comment.
+permissions:
+  repo: read
+  github: comment
+nodes:
+  - id: gather
+    kind: agent
+    prompt_ref: pr-review/gather.md
+    tools: [github.pr_diff, repo.read, codesearch.query]
+
+  - id: review
+    kind: agent
+    depends_on: [gather]
+    prompt_ref: pr-review/review.md
+    tools: [repo.read]
+    output_schema: schemas/review-findings.json
+
+  - id: post
+    kind: agent
+    depends_on: [review]
+    gate: auto            # low-risk write (comment) — auto-gated via policy scan
+    prompt_ref: pr-review/post.md
+    tools: [github.pr_comment]
