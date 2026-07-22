@@ -1,6 +1,7 @@
 namespace Harness.Contracts;
 
-public enum RunStatus { Pending, Running, AwaitingApproval, Completed, Failed, PolicyBlocked }
+// Appended-to only: the numeric values are persisted, so new members go at the end.
+public enum RunStatus { Pending, Running, AwaitingApproval, Completed, Failed, PolicyBlocked, Rejected }
 
 public sealed class Run
 {
@@ -30,4 +31,41 @@ public sealed class RunEvent
     public int TokensIn { get; init; }
     public int TokensOut { get; init; }
     public decimal CostUsd { get; init; }
+}
+
+public enum GateDecision { Pending, Approved, Rejected }
+
+/// <summary>
+/// A human gate on a node. Created when the run reaches a `gate: human` node and pauses;
+/// resolved out-of-band by the initiator. The run cannot proceed past the node without it.
+/// </summary>
+public sealed class GateApproval
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+    public required Guid RunId { get; init; }
+    public required string Node { get; init; }
+    public GateDecision Decision { get; set; } = GateDecision.Pending;
+    public string? Approver { get; set; }
+    public string? Reason { get; set; }
+    public DateTimeOffset RequestedAt { get; init; } = DateTimeOffset.UtcNow;
+    public DateTimeOffset? DecidedAt { get; set; }
+}
+
+/// <summary>
+/// Persists run state as it transitions. Without this a paused or failed run is invisible until
+/// it terminates — the M0 code only wrote the row back at the very end.
+/// </summary>
+public interface IRunStore
+{
+    Task SaveAsync(Run run, CancellationToken ct = default);
+    Task<Run?> GetAsync(Guid runId, CancellationToken ct = default);
+}
+
+/// <summary>Human-gate decisions. Requesting a gate pauses the run until a decision is recorded.</summary>
+public interface IApprovalStore
+{
+    Task<GateApproval> RequestAsync(Guid runId, string node, CancellationToken ct = default);
+    Task<GateApproval?> GetAsync(Guid runId, string node, CancellationToken ct = default);
+    Task<GateApproval> DecideAsync(Guid runId, string node, GateDecision decision,
+        string approver, string? reason, CancellationToken ct = default);
 }

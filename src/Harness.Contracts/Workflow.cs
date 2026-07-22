@@ -8,6 +8,14 @@ public sealed class WorkflowDefinition
     /// <summary>Permission ceiling for every node (e.g. repo: read, github: comment).</summary>
     public Dictionary<string, string> Permissions { get; init; } = [];
     public required List<NodeDefinition> Nodes { get; init; }
+
+    /// <summary>
+    /// Content hash of the definition and every prompt it references, stamped by the loader.
+    /// This is what pins a run to the exact workflow+prompt versions that produced it — the audit
+    /// chain proves events were not tampered with, this proves *what definition* ran.
+    /// Set by the loader, never present in the YAML (Contracts stays dependency-free).
+    /// </summary>
+    public string Sha { get; set; } = "";
 }
 
 public sealed class NodeDefinition
