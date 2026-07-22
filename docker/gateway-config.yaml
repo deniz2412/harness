@@ -1,16 +1,169 @@
 # Model tiering: workflows reference "cheap" and "strong"; actual models swap here, never in code.
+#
+# Everything below the model list is a spend and blast-radius bound (design-spec §2.7, M1). All of
+# it is enforced in the gateway process: no Redis, no DATABASE_URL, nothing added to the compose
+# stack. What that costs us is written out under "Budgets this file cannot enforce" at the bottom —
+# read that before assuming a number here is an accounting control. It is not; it is a circuit
+# breaker.
 model_list:
   - model_name: cheap
     litellm_params:
       model: anthropic/claude-haiku-4-5
       api_key: os.environ/ANTHROPIC_API_KEY
+
+      # Per-deployment ceilings, enforced by the router (see routing_strategy below): over the
+      # limit it raises RateLimitError instead of calling Anthropic. One gateway instance means
+      # the router's in-memory counters are the whole truth — Redis only exists to sum these
+      # across replicas, and there are none.
+      #
+      # Sized for a solo PoC, not for throughput: a pr-review run is three calls. tpm is the one
+      # that actually bounds money; rpm bounds a wedged retry loop. Raise both when concurrency
+      # grows, and raise them deliberately — a run that dies on a rate limit is the system
+      # working.
+      rpm: 30
+      tpm: 200000
+
+      # The harness never sends max_tokens (Harness.Agents/AgentNodeExecutor.cs), so this is the
+      # effective output ceiling for every call. Honest caveat: it is a default merged into the
+      # request, not a hard cap — a client that sent a larger value would win. The harness is the
+      # only client, and the gateway is the only path to a model, so the two together hold.
+      max_tokens: 8192
+
+      # A hung provider must fail the node, not wedge a run that nothing is observing
+      # (POST /runs is still fire-and-forget).
+      timeout: 120
+      stream_timeout: 120
+
+      # Concurrency ceiling for this deployment, on top of the global one in general_settings.
+      max_parallel_requests: 4
+    model_info:
+      # Refuse an oversized prompt before it is paid for. The input here is an untrusted PR diff
+      # assembled by tools that impose no size cap of their own — a pathological diff should cost
+      # a rejection, not a call. Made real by router_settings.enable_pre_call_checks; set well
+      # below the model's 200k context so it fires only on genuinely absurd input.
+      max_input_tokens: 150000
+
   - model_name: strong
     litellm_params:
       model: anthropic/claude-sonnet-4-5
       api_key: os.environ/ANTHROPIC_API_KEY
+      # Tighter than cheap: this tier is ~20x the price per token, and it is the tier the review
+      # and write nodes use.
+      rpm: 12
+      tpm: 120000
+      max_tokens: 16384
+      timeout: 300
+      stream_timeout: 300
+      max_parallel_requests: 2
+    model_info:
+      max_input_tokens: 150000
+
+router_settings:
+  # This is what turns the rpm/tpm above from routing hints into enforcement — under any other
+  # strategy they only bias deployment selection, and with one deployment per tier that is a
+  # no-op. There is nothing to load-balance here; the limits are the entire point of the router.
+  routing_strategy: usage-based-routing-v2
+
+  # Required for model_info.max_input_tokens to be checked before the call goes out.
+  enable_pre_call_checks: true
+
+  # Retries multiply spend, so they are bounded and typed rather than left at the default of 3.
+  num_retries: 2
+  timeout: 300
+
+  # After this many failures a deployment is cooled down instead of being hammered.
+  allowed_fails: 3
+  cooldown_time: 60
+
+  # Retry only what is actually transient. A bad key or a malformed request will fail identically
+  # the second time; a content-policy refusal is a result, not a fault, and retrying it just pays
+  # for the same refusal again.
+  retry_policy:
+    AuthenticationErrorRetries: 0
+    BadRequestErrorRetries: 0
+    ContentPolicyViolationErrorRetries: 0
+    RateLimitErrorRetries: 1
+    TimeoutErrorRetries: 2
+
+  # Our own tpm/rpm ceilings surface as rate-limit errors. Those are the system working as
+  # designed, so they must not also cool the deployment down as if the provider were broken.
+  allowed_fails_policy:
+    RateLimitErrorAllowedFails: 100
+    ContentPolicyViolationErrorAllowedFails: 1000
+
+  # Deliberately NO fallbacks between cheap and strong. LiteLLM would silently serve a different
+  # model than the one the audit event records (AgentNodeExecutor emits `model=strong` before the
+  # call), and a run that cannot say which model produced its output is exactly the attributability
+  # the audit chain exists to provide. A tier failure should fail the run, loudly.
 
 litellm_settings:
   drop_params: true
 
+  # Last line of defence if every per-model ceiling above is somehow wrong. Process-local: the
+  # counter lives in the gateway container and resets when it restarts, because there is no spend
+  # ledger without DATABASE_URL. Treat the rpm/tpm ceilings as the real control and this as the
+  # thing that stops a bad night, not as a budget.
+  max_budget: 25
+
+  # Backstop for anything the router settings did not bound. LiteLLM's default is 6000s.
+  request_timeout: 600
+
+  # Redacted request/response logging (design-spec §2.7). Every call carries untrusted repo content
+  # in and model output back; the hash-chained audit trail is where that belongs, not the gateway's
+  # stdout, which is unchained, unscanned and readable by anything with `docker logs`.
+  turn_off_message_logging: true
+  redact_user_api_key_info: true
+  json_logs: true
+
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+
+  # Port 4000 is no longer published to the host (docker/compose.yaml uses `expose`, not `ports`,
+  # per threat-model F6), so the gateway is reachable only from the harness over the compose
+  # network and the master key guards that hop. Cap total in-flight requests anyway so a wedged
+  # harness cannot fan out across both tiers at once.
+  global_max_parallel_requests: 8
+
+  # Do not echo the master key back on any admin response.
+  disable_master_key_return: true
+
+  # An IP allowlist is unnecessary now that 4000 is unpublished; left here as the control to add
+  # first if the port is ever reopened for debugging. The compose bridge subnet is not fixed, so
+  # it would need pinning before use.
+  # allowed_ips: ["172.16.0.0/12"]
+
+# ---------------------------------------------------------------------------------------------
+# Budgets this file cannot enforce (open decision — do not enable without the compose change)
+#
+# Everything above is in-process. These need LiteLLM's own database, i.e. a `DATABASE_URL` on the
+# gateway service and LiteLLM's Prisma schema in a database of its own:
+#
+#   - Virtual keys (`/key/generate`) and per-key `max_budget` / `budget_duration`. This is the
+#     feature that would give a *per-workflow* budget in the design-spec §2.7 sense: one key per
+#     workflow, each with its own ceiling, instead of one shared master key.
+#   - Per-key and per-team rpm/tpm limits (the model-level ones above are shared by all callers).
+#   - Persisted spend tracking, `/spend/*` reporting, and cost attribution per key or per tag.
+#   - Automatic budget resets (`budget_duration`) — without a DB there is no reset window at all,
+#     so `litellm_settings.max_budget` above simply runs until the container restarts.
+#   - Per-deployment `max_budget` / `budget_duration` in litellm_params, which needs the router's
+#     budget limiter and a cross-process counter behind it.
+#
+# The compose change this would take (orchestrator's call, docker/compose.yaml owns it):
+#
+#   postgres:
+#     volumes:
+#       - ./init-litellm-db.sql:/docker-entrypoint-initdb.d/10-litellm.sql:ro
+#       # (the official image runs *.sql in that directory once, on first init only — an existing
+#       #  pg-data volume is untouched, so this needs `down -v` or a manual CREATE DATABASE)
+#   gateway:
+#     environment:
+#       DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@postgres:5432/litellm
+#     depends_on:
+#       postgres: { condition: service_healthy }
+#
+# Recommendation: not yet. It buys per-workflow budgets, which is the one thing this file genuinely
+# cannot do — but it also puts LiteLLM's Prisma migrations into the same server that holds the
+# audit chain, gives a third-party service DB credentials, and adds a startup dependency and a
+# migration step to a stack whose cold-start ordering has already broken twice. Revisit when there
+# is more than one workflow with a real cost profile to separate (M2), and give LiteLLM its own
+# database at that point, never the `harness` one.
