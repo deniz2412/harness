@@ -17,8 +17,21 @@ public sealed class EfRunStore(IDbContextFactory<HarnessDbContext> dbFactory) : 
         await using var db = await dbFactory.CreateDbContextAsync(ct);
 
         var existing = await db.Runs.FirstOrDefaultAsync(r => r.Id == run.Id, ct);
-        if (existing is null) db.Runs.Add(run);
-        else db.Entry(existing).CurrentValues.SetValues(run);
+        if (existing is null)
+        {
+            // First write: HeadSeq/HeadHash default to 0/null — correct, no events emitted yet.
+            db.Runs.Add(run);
+        }
+        else
+        {
+            db.Entry(existing).CurrentValues.SetValues(run);
+            // The chain-head anchor is owned by AuditEmitter, which advances it with each event.
+            // The executor's Run object does not track it, so writing it back here would revert the
+            // anchor to a stale value and mask a deletion. Exclude both columns: emitter and store
+            // own disjoint columns of Runs and must not clobber each other.
+            db.Entry(existing).Property(nameof(Run.HeadSeq)).IsModified = false;
+            db.Entry(existing).Property(nameof(Run.HeadHash)).IsModified = false;
+        }
 
         await db.SaveChangesAsync(ct);
     }

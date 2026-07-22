@@ -281,12 +281,15 @@ public sealed class ChainVerificationTests
     }
 
     [Fact]
-    public async Task Running_run_whose_events_were_all_deleted_is_not_reported_intact()
+    public async Task Wholesale_deletion_is_caught_by_the_anchor()
     {
         using var h = new AuditTestHarness();
         var run = await SeedRunAsync(h);
-        await EmitThreeAsync(h, run.Id);
+        await EmitThreeAsync(h, run.Id);   // advances the run's head anchor to seq 3
 
+        // Simulate an attacker with owner privileges (who can bypass the append-only trigger)
+        // deleting every event but leaving the anchor untouched. InMemory does not enforce the
+        // trigger, which is exactly the scenario we need to reproduce here.
         await using (var db = await h.CreateDbContextAsync())
         {
             db.Events.RemoveRange(await db.Events.Where(e => e.RunId == run.Id).ToListAsync());
@@ -296,7 +299,103 @@ public sealed class ChainVerificationTests
         var result = await h.Verifier.VerifyAsync(run.Id);
 
         Assert.False(result.Intact);
-        Assert.Equal(ChainVerificationResult.ChainLevelSeq, result.FirstBrokenSeq);
+        // Chain ends at seq 0, anchor is 3 → the gap opens at the first missing seq, 1.
+        Assert.Equal(1, result.FirstBrokenSeq);
+        Assert.Empty(result.Events);
+        Assert.Equal(1, await h.Emitter.VerifyChainAsync(run.Id, default));
+    }
+
+    [Fact]
+    public async Task Tail_truncation_is_caught_by_the_anchor()
+    {
+        using var h = new AuditTestHarness();
+        var run = await SeedRunAsync(h);
+        await EmitThreeAsync(h, run.Id);   // anchor at seq 3
+
+        // Delete only the last event. Seqs 1..2 remain a perfectly consistent chain — the loop
+        // over surviving events cannot see the gap; only the anchor (still seq 3) reveals it.
+        await using (var db = await h.CreateDbContextAsync())
+        {
+            var last = await db.Events.SingleAsync(e => e.RunId == run.Id && e.Seq == 3);
+            db.Events.Remove(last);
+            await db.SaveChangesAsync();
+        }
+
+        var result = await h.Verifier.VerifyAsync(run.Id);
+
+        Assert.False(result.Intact);
+        Assert.Equal(3, result.FirstBrokenSeq);              // first missing seq
+        Assert.All(result.Events, e => Assert.Equal(ChainStatus.Ok, e.Status)); // survivors verify
+    }
+
+    [Fact]
+    public async Task Clean_run_verifies_with_the_anchor_matching()
+    {
+        using var h = new AuditTestHarness();
+        var run = await SeedRunAsync(h);
+        await EmitThreeAsync(h, run.Id);
+
+        var result = await h.Verifier.VerifyAsync(run.Id);
+        Assert.True(result.Intact);
+
+        // The anchor itself must point at the real terminal event.
+        await using var db = await h.CreateDbContextAsync();
+        var stored = await db.Runs.SingleAsync(r => r.Id == run.Id);
+        var lastEvent = await db.Events.SingleAsync(e => e.RunId == run.Id && e.Seq == 3);
+        Assert.Equal(3, stored.HeadSeq);
+        Assert.Equal(lastEvent.PayloadHash, stored.HeadHash);
+    }
+
+    [Fact]
+    public async Task Anchor_advances_on_each_emit()
+    {
+        using var h = new AuditTestHarness();
+        var run = await SeedRunAsync(h);
+
+        await h.Emitter.EmitAsync(run.Id, "node_start", "gather", "agent", default);
+        await AssertAnchorAsync(h, run.Id, 1);
+        await h.Emitter.EmitAsync(run.Id, "model_call", "gather", "call", default);
+        await AssertAnchorAsync(h, run.Id, 2);
+        await h.Emitter.EmitAsync(run.Id, "node_end", "gather", "done", default);
+        await AssertAnchorAsync(h, run.Id, 3);
+    }
+
+    private static async Task AssertAnchorAsync(AuditTestHarness h, Guid runId, long expectedSeq)
+    {
+        await using var db = await h.CreateDbContextAsync();
+        var run = await db.Runs.SingleAsync(r => r.Id == runId);
+        var head = await db.Events.SingleAsync(e => e.RunId == runId && e.Seq == expectedSeq);
+        Assert.Equal(expectedSeq, run.HeadSeq);
+        Assert.Equal(head.PayloadHash, run.HeadHash);
+    }
+
+    /// <summary>
+    /// Executable documentation of the STRIDE F4 boundary: the anchor is a mutable in-band column,
+    /// so an attacker who truncates the chain AND rewrites the anchor to match the shorter chain
+    /// defeats detection. This is tamper-<em>evidence</em>, not tamper-<em>resistance</em>; closing
+    /// it needs the least-privilege append-only runtime role (graduation / M4). If this test ever
+    /// starts failing, the anchor gained out-of-band protection — update the threat model.
+    /// </summary>
+    [Fact]
+    public async Task Truncation_with_a_matching_rewritten_anchor_is_the_documented_F4_limit()
+    {
+        using var h = new AuditTestHarness();
+        var run = await SeedRunAsync(h);
+        await EmitThreeAsync(h, run.Id);
+
+        await using (var db = await h.CreateDbContextAsync())
+        {
+            var last = await db.Events.SingleAsync(e => e.RunId == run.Id && e.Seq == 3);
+            var survivor2 = await db.Events.SingleAsync(e => e.RunId == run.Id && e.Seq == 2);
+            db.Events.Remove(last);
+            var runRow = await db.Runs.SingleAsync(r => r.Id == run.Id);
+            runRow.HeadSeq = 2;                       // rewind the anchor to the truncated chain
+            runRow.HeadHash = survivor2.PayloadHash;
+            await db.SaveChangesAsync();
+        }
+
+        // Verifies intact — the anchor and chain agree. The limitation is real and acknowledged.
+        Assert.True((await h.Verifier.VerifyAsync(run.Id)).Intact);
     }
 
     [Fact]

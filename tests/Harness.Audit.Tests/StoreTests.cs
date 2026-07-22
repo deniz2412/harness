@@ -49,6 +49,53 @@ public sealed class RunStoreTests
         using var h = new AuditTestHarness();
         Assert.Null(await new EfRunStore(h).GetAsync(Guid.NewGuid()));
     }
+
+    /// <summary>
+    /// The emitter owns HeadSeq/HeadHash; the store owns Status/FinishedAt. They write disjoint
+    /// columns of the same Runs row and must not revert each other — the executor's stale in-memory
+    /// Run (HeadSeq 0) must not wipe the anchor an emit just advanced, and an emit must not revert a
+    /// status the executor just set.
+    /// </summary>
+    [Fact]
+    public async Task Head_anchor_and_status_writes_do_not_clobber_each_other()
+    {
+        using var h = new AuditTestHarness();
+        var store = new EfRunStore(h);
+        var run = new Run
+        {
+            Workflow = "pr-review", WorkflowSha = "abc123", Initiator = "tests",
+            Repo = "deniz2412/test-repo-harness", Status = RunStatus.Running
+        };
+        await store.SaveAsync(run);   // in-memory run.HeadSeq is 0
+
+        // Emit advances the anchor directly in the DB.
+        await h.Emitter.EmitAsync(run.Id, "node_start", "gather", "agent", default);
+
+        // The executor now saves a status change through the store, from its stale in-memory Run
+        // (HeadSeq still 0). This must NOT revert the anchor the emit just wrote.
+        run.Status = RunStatus.Completed;
+        run.FinishedAt = DateTimeOffset.UtcNow;
+        await store.SaveAsync(run);
+
+        await using (var db = await h.CreateDbContextAsync())
+        {
+            var stored = await db.Runs.SingleAsync(r => r.Id == run.Id);
+            Assert.Equal(1, stored.HeadSeq);                  // anchor survived the status write
+            Assert.NotNull(stored.HeadHash);
+            Assert.Equal(RunStatus.Completed, stored.Status); // status write took effect
+        }
+
+        // A further emit must advance the anchor without reverting the status.
+        await h.Emitter.EmitAsync(run.Id, "node_end", "gather", "done", default);
+        await using (var db = await h.CreateDbContextAsync())
+        {
+            var stored = await db.Runs.SingleAsync(r => r.Id == run.Id);
+            Assert.Equal(2, stored.HeadSeq);
+            Assert.Equal(RunStatus.Completed, stored.Status); // emit left status alone
+        }
+
+        Assert.True((await h.Verifier.VerifyAsync(run.Id)).Intact);
+    }
 }
 
 public sealed class ApprovalStoreTests

@@ -67,17 +67,6 @@ public sealed class ChainVerifier(IDbContextFactory<HarnessDbContext> dbFactory,
                 "no such run: neither a run row nor any events exist, so there is nothing to verify",
                 []);
 
-        if (events.Count == 0)
-        {
-            // A run that got as far as Running must have emitted node_start. Zero events for such a
-            // run means the trail was deleted wholesale, which is exactly what an attacker would do.
-            var expectedEvents = run is not null && run.Status != RunStatus.Pending;
-            return expectedEvents
-                ? new ChainVerificationResult(runId, false, ChainVerificationResult.ChainLevelSeq,
-                    $"run status is {run!.Status} but the run has no audit events", [])
-                : new ChainVerificationResult(runId, true, null, "run has not emitted any events yet", []);
-        }
-
         var checks = new List<ChainEventCheck>(events.Count);
         var expectedSeq = 1L;
         var seen = new HashSet<long>();
@@ -103,9 +92,66 @@ public sealed class ChainVerifier(IDbContextFactory<HarnessDbContext> dbFactory,
         }
 
         var firstBad = checks.FirstOrDefault(c => !c.Ok);
-        return firstBad is null
-            ? new ChainVerificationResult(runId, true, null, null, checks)
-            : new ChainVerificationResult(runId, false, firstBad.Seq, firstBad.Detail, checks);
+        if (firstBad is not null)
+            return new ChainVerificationResult(runId, false, firstBad.Seq, firstBad.Detail, checks);
+
+        // Every surviving event verifies internally. That is necessary but not sufficient: a
+        // deleted tail (or every event) leaves a shorter, internally consistent chain that passes
+        // the loop above. Only the per-run head anchor — advanced with each emit — records where
+        // the chain was supposed to end, so the terminal check below is what catches deletion.
+        return CheckAnchor(runId, run, events, checks);
+    }
+
+    /// <summary>
+    /// The chain must terminate exactly at the run's recorded head: the last surviving event's seq
+    /// must equal <see cref="Contracts.Run.HeadSeq"/> and its hash equal
+    /// <see cref="Contracts.Run.HeadHash"/>. Fewer events than the anchor ⇒ a deleted tail; more,
+    /// or a head-hash mismatch ⇒ the anchor was rewound or the head swapped.
+    ///
+    /// Caveat (STRIDE F4): the anchor lives in the same Runs table, reachable by the same DB role.
+    /// This detects deletion that does <em>not</em> also rewrite the anchor; an attacker who edits
+    /// HeadSeq/HeadHash to match a truncated chain defeats it. Closing that needs an append-only
+    /// runtime role (INSERT/SELECT only on Events, no UPDATE on the anchor from the app role) —
+    /// graduation work. A best-effort DB trigger (this migration) blocks accidental and non-owner
+    /// Event mutation but not a malicious owner. Tamper-evidence widens here; tamper-resistance
+    /// waits for infra.
+    /// </summary>
+    private static ChainVerificationResult CheckAnchor(
+        Guid runId, Run? run, IReadOnlyList<RunEvent> events, IReadOnlyList<ChainEventCheck> checks)
+    {
+        if (run is null)
+            return new ChainVerificationResult(runId, false, ChainVerificationResult.ChainLevelSeq,
+                "events exist but the run row is gone — the chain has no anchor to verify against",
+                checks);
+
+        var actualMaxSeq = events.Count > 0 ? events[^1].Seq : 0L;
+        var actualHeadHash = events.Count > 0 ? events[^1].PayloadHash : null;
+
+        // Legitimately empty: no events and the anchor never advanced.
+        if (run.HeadSeq == 0 && events.Count == 0)
+            return new ChainVerificationResult(runId, true, null,
+                "run has not emitted any events yet", checks);
+
+        // Deletion / truncation: fewer events survive than the anchor recorded. The gap opens right
+        // after the last surviving event — seq 1 when every event was removed.
+        if (actualMaxSeq < run.HeadSeq)
+            return new ChainVerificationResult(runId, false, actualMaxSeq + 1,
+                $"chain ends at seq {actualMaxSeq} but the run's head anchor is seq {run.HeadSeq} — "
+                + $"{run.HeadSeq - actualMaxSeq} event(s) deleted from the tail", checks);
+
+        // More events than the anchor knows: the anchor was rewound, or rows were appended out of
+        // band. (Both writers advance the anchor with each event, so this cannot happen legitimately.)
+        if (actualMaxSeq > run.HeadSeq)
+            return new ChainVerificationResult(runId, false, run.HeadSeq == 0 ? 1 : run.HeadSeq + 1,
+                $"chain ends at seq {actualMaxSeq} but the run's head anchor is seq {run.HeadSeq} — "
+                + "the anchor was rewound or events were appended out of band", checks);
+
+        // Terminal seq matches; the terminal hash must match the anchor too.
+        if (actualHeadHash != run.HeadHash)
+            return new ChainVerificationResult(runId, false, run.HeadSeq,
+                "the head event's hash does not match the run's head anchor", checks);
+
+        return new ChainVerificationResult(runId, true, null, null, checks);
     }
 
     private async Task<(ChainStatus Status, string? Detail)> CheckEventAsync(

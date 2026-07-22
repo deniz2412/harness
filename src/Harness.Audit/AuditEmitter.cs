@@ -34,6 +34,13 @@ public sealed class AuditEmitter(IDbContextFactory<HarnessDbContext> dbFactory, 
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
 
+            // Tracked (not AsNoTracking): the head-anchor update below rides in the SAME
+            // SaveChanges — one transaction — as the event insert, so the anchor can never point
+            // at an event that didn't commit, nor an event commit without its anchor advancing.
+            // Null only if the run row is absent (a stray emit with no run); we still record the
+            // event — it is the crown jewel — and let verification flag the missing run.
+            var runRow = await db.Runs.FirstOrDefaultAsync(r => r.Id == runId, ct);
+
             var prev = await db.Events.Where(e => e.RunId == runId)
                 .OrderByDescending(e => e.Seq).FirstOrDefaultAsync(ct);
             var seq = (prev?.Seq ?? 0) + 1;
@@ -65,6 +72,18 @@ public sealed class AuditEmitter(IDbContextFactory<HarnessDbContext> dbFactory, 
                 PayloadHash = hash, PayloadRef = $"file://{payloadPath}",
                 TokensIn = tokensIn, TokensOut = tokensOut, CostUsd = costUsd
             });
+
+            // Advance the chain-head anchor in lock-step with the event. Only these two columns are
+            // touched, so this never reverts a Status/FinishedAt the executor set via EfRunStore —
+            // which in turn leaves these two columns alone. The two writers own disjoint columns of
+            // Runs and cannot clobber each other. This is what makes tail-deletion detectable: a
+            // deleted tail leaves a shorter but internally consistent chain, and only the anchor
+            // records where the chain was supposed to end.
+            if (runRow is not null)
+            {
+                runRow.HeadSeq = seq;
+                runRow.HeadHash = hash;
+            }
 
             try
             {
