@@ -2,7 +2,10 @@ name: harness
 services:
   harness:
     build: { context: .., dockerfile: docker/Dockerfile.harness }
-    ports: ["8080:8080"]
+    # Loopback only: the API is unauthenticated (threat model F1), so it must not be reachable from
+    # off the workstation. Binding to 127.0.0.1 keeps `curl localhost:8080` working while other
+    # hosts on the network cannot trigger runs. Real auth arrives before this opens up.
+    ports: ["127.0.0.1:8080:8080"]
     environment:
       ASPNETCORE_URLS: http://0.0.0.0:8080
       GITHUB_TOKEN: ${GITHUB_TOKEN}
@@ -26,7 +29,11 @@ services:
 
   gateway:
     image: ghcr.io/berriai/litellm:main-stable
-    ports: ["4000:4000"]                      # exposed locally for debugging only
+    # Not published to the host: the harness reaches it as gateway:4000 over the compose network,
+    # and `docker compose exec gateway ...` covers debugging. Publishing it put the only spend-
+    # metered service on 0.0.0.0 behind a single master key (threat model F6). The container
+    # healthcheck below, not a host probe, is what gates startup.
+    expose: ["4000"]
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY} # the ONLY service that sees the key
       LITELLM_MASTER_KEY: ${GATEWAY_MASTER_KEY}
