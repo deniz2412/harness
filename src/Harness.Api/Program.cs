@@ -208,28 +208,26 @@ app.MapPost("/runs/{id:guid}/gates/{node}/decide", async (
     // claim, not as an identity (threat model F1).
     var approver = string.IsNullOrWhiteSpace(body.Approver) ? run.Initiator : body.Approver;
 
-    try { await approvals.DecideAsync(id, node, decision, approver, body.Reason, ct); }
-    catch (GateNotFoundException) { return Results.NotFound(new { error = $"No gate requested for node '{node}'." }); }
-    catch (GateAlreadyDecidedException e) { return Results.Conflict(new { error = e.Message }); }
-
-    if (!body.Approve)
-    {
-        // Let the executor record the rejection and close the run out through its own path.
-        await StartAsync(run, loader.Load(run.Workflow), dag, runs, audit, policy, log);
-        return Results.Accepted($"/runs/{run.Id}", new { run.Id, decision = decision.ToString() });
-    }
-
-    // Approving resumes, but only the definition that was approved: if the workflow or any prompt
-    // it references changed since the run paused, the approval was given for something else.
+    // Resuming re-executes the DAG, so both decisions run against a freshly loaded definition — and
+    // both must be the definition the human acted on. If the workflow or a prompt changed while the
+    // run was paused, the decision was made about something else: an approval could execute inserted
+    // pre-gate nodes, and a rejection could run a DAG whose gate has moved or gone. Check before
+    // recording the decision, so a stale run is refused, not half-run.
     var wf = loader.Load(run.Workflow);
     if (!string.Equals(wf.Sha, run.WorkflowSha, StringComparison.Ordinal))
         return Results.Conflict(new
         {
             error = "The workflow definition changed while this run was paused; "
-                  + "the approval does not carry over. Start a new run.",
-            approvedSha = run.WorkflowSha, currentSha = wf.Sha
+                  + "the decision does not carry over. Start a new run.",
+            decidedSha = run.WorkflowSha, currentSha = wf.Sha
         });
 
+    try { await approvals.DecideAsync(id, node, decision, approver, body.Reason, ct); }
+    catch (GateNotFoundException) { return Results.NotFound(new { error = $"No gate requested for node '{node}'." }); }
+    catch (GateAlreadyDecidedException e) { return Results.Conflict(new { error = e.Message }); }
+
+    // Either way the executor resumes: an approval proceeds past the gate, a rejection is recorded
+    // and the run closed out — both through the executor's own audited path.
     await StartAsync(run, wf, dag, runs, audit, policy, log);
     return Results.Accepted($"/runs/{run.Id}", new { run.Id, decision = decision.ToString() });
 });

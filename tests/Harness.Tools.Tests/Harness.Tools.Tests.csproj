@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><IsPackable>false</IsPackable></PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <!-- Offline by contract: the AuditEmitter the wrapper needs runs on an in-memory database. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="8.0.11" />
+    <ProjectReference Include="../../src/Harness.Tools/Harness.Tools.csproj" />
+    <ProjectReference Include="../../src/Harness.Audit/Harness.Audit.csproj" />
+  </ItemGroup>
+</Project>

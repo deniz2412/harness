@@ -7,7 +7,9 @@ public sealed class Run
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public required string Workflow { get; init; }
-    public required string WorkflowSha { get; init; }   // git SHA of workflow defs at start
+    /// <summary>Content hash of the workflow YAML + every prompt it references (WorkflowLoader);
+    /// not a git SHA — the definitions are mounted read-only with no git in the container.</summary>
+    public required string WorkflowSha { get; init; }
     public required string Initiator { get; init; }
     public required string Repo { get; init; }
     public int? PullRequest { get; init; }
@@ -15,6 +17,17 @@ public sealed class Run
     public RunStatus Status { get; set; } = RunStatus.Pending;
     public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? FinishedAt { get; set; }
+
+    /// <summary>
+    /// Chain-head anchor: the seq and hash of the latest audit event, updated as each event is
+    /// emitted. Verification checks the chain terminates exactly here, so deleting the tail (or
+    /// every event) of a run is caught instead of leaving a shorter, internally consistent chain
+    /// that still verifies. HeadSeq 0 means no events yet.
+    /// (Tamper-*evidence*; true resistance to a DB-owner rewrite of this anchor is the append-only
+    /// runtime role at graduation — see docs/threat-model.md F4.)
+    /// </summary>
+    public long HeadSeq { get; set; }
+    public string? HeadHash { get; set; }
 }
 
 public sealed class RunEvent
@@ -29,7 +42,9 @@ public sealed class RunEvent
     /// </summary>
     public required string Type { get; init; }
     public required string Node { get; init; }
-    public required string PayloadHash { get; init; }  // sha256(prev_hash + payload) — hash chain
+    /// <summary>Chain hash binding the previous hash and this event's RunId/Seq/Type/Node/Ts +
+    /// payload (see Harness.Audit.ChainHash). Any of those changing breaks the chain from here on.</summary>
+    public required string PayloadHash { get; init; }
     public string? PayloadRef { get; init; }           // file://audit-payloads/...
     public int TokensIn { get; init; }
     public int TokensOut { get; init; }
