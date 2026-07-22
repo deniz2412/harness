@@ -5,13 +5,13 @@ using Harness.Policy;
 using Harness.Tools;
 using Microsoft.Agents.AI;
 using OpenAI;
+using OpenAI.Chat;
 
 namespace Harness.Agents;
 
 /// <summary>
 /// Executes 'agent' workflow nodes: builds a MAF AIAgent with the node's versioned prompt and
 /// only the tools the node lists, pointed at the model gateway (never a provider directly).
-/// NOTE (M0): verify against MAF 1.6.1 API on first `dotnet build` — extension names may drift.
 /// </summary>
 public sealed class AgentNodeExecutor(
     GatewayOptions gateway, ToolRegistry tools, PolicyPipeline policy,
@@ -35,9 +35,10 @@ public sealed class AgentNodeExecutor(
             new ApiKeyCredential(gateway.ApiKey),
             new OpenAIClientOptions { Endpoint = new Uri(gateway.BaseUrl) });
 
-        AIAgent agent = client.GetChatClient(model).CreateAIAgent(
+        AIAgent agent = client.GetChatClient(model).AsAIAgent(
             instructions: prompt,
-            tools: [.. tools.Resolve(ctx.Node.Tools)]);
+            name: ctx.Node.Id,
+            tools: tools.Resolve(ctx.Node.Tools));
 
         await audit.EmitAsync(ctx.Run.Id, "model_call", ctx.Node.Id,
             payload: $"model={model} tools=[{string.Join(",", ctx.Node.Tools)}]", ct);
