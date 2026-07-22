@@ -1,0 +1,52 @@
+# The curated tool catalog and the permission lattice the workflow `permissions:` ceiling is
+# expressed in. Data, not code — see Harness.Policy/ToolCatalog.cs.
+#
+# Adding a tool here is a reviewed platform change (invariant 7). A tool that is not in this file
+# cannot be resolved or invoked, whatever a workflow lists. Two names can never appear here:
+# anything that merges, and anything that creates or deletes a repository (invariant 1); the loader
+# rejects the catalog outright if they do, so the invariant survives a careless edit to this file.
+#
+# `levels` are ordered least- to most-privileged. A tool is allowed only when the workflow's
+# declared level for the tool's scope ranks at or above the tool's required level. A scope the
+# workflow does not declare denies every tool in it — absence is never permission.
+version: 1
+
+scopes:
+  - name: repo
+    description: The run's checked-out worktree.
+    levels: [none, read, write-worktree]
+
+  - name: github
+    description: The GitHub API surface. Ends at opening a PR; there is no merge level.
+    levels: [none, read, comment, open_pr+issues]
+
+tools:
+  - name: github.pr_diff
+    scope: github
+    level: read
+    description: Get the unified diff of a pull request.
+
+  - name: github.get_issue
+    scope: github
+    level: read
+    description: Read a GitHub issue title and body.
+
+  - name: github.pr_comment
+    scope: github
+    level: comment
+    description: Post a review comment on a pull request.
+
+  - name: repo.read
+    scope: repo
+    level: read
+    description: Read a file from the repository worktree.
+
+  - name: repo.list
+    scope: repo
+    level: read
+    description: List files in the repository worktree.
+
+  - name: codesearch.query
+    scope: repo
+    level: read
+    description: Search the repository worktree for a term.

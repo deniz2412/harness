@@ -1,5 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="16.3.0" />
     <ProjectReference Include="../Harness.Contracts/Harness.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Policy data. The secret ruleset and the tool catalog are data, not code, but they are
+         embedded in the assembly rather than mounted: a file on disk could be swapped or emptied
+         at runtime, and an empty ruleset silently passes everything. -->
+    <EmbeddedResource Include="Rules/secret-rules.yaml" />
+    <EmbeddedResource Include="Rules/tool-catalog.yaml" />
   </ItemGroup>
 </Project>
