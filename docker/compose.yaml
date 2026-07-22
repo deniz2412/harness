@@ -22,7 +22,7 @@ services:
       postgres:
         condition: service_healthy
       gateway:
-        condition: service_started
+        condition: service_healthy
 
   gateway:
     image: ghcr.io/berriai/litellm:main-stable
@@ -33,6 +33,16 @@ services:
     volumes:
       - ./gateway-config.yaml:/app/config.yaml:ro
     command: ["--config", "/app/config.yaml", "--port", "4000"]
+    # Same race as postgres had: on a cold start the gateway takes ~20s to listen, and the first
+    # agent node fails with "Connection refused (gateway:4000)". The image ships neither curl nor
+    # wget, so the probe goes through its own python.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=3).status==200 else 1)"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
 
   postgres:
     image: postgres:16

@@ -95,9 +95,7 @@ returned `Resource not accessible by personal access token`).
 
 Stated plainly, so the pass is not read as more than it is.
 
-- **Warm stack, not a cold rebuild.** The run reused the already-running stack. The final commit
-  touched only Markdown, so the running image is equivalent to a rebuild, but a clean
-  `down` / `up --build` was not performed as part of the check.
+- ~~**Warm stack, not a cold rebuild.**~~ *Closed 2026-07-23 — see the re-check below.*
 - **`workflowSha` is `"dev"`.** Hardcoded in the `/runs` handler, so this run cannot be tied to
   the workflow and prompt versions that produced it. The audit chain proves the events were not
   tampered with; it does not prove *what definition* ran.
@@ -106,6 +104,27 @@ Stated plainly, so the pass is not read as more than it is.
 - **Single scenario.** One workflow, one PR, one repo, happy path. No gate, no policy block, no
   agent-loop or bash node, no resume, no concurrent runs.
 - **Unit tests remain thin** — 2 engine tests; nothing covers the agent, tool or audit layers.
+
+## Re-check on a cold rebuild — 2026-07-23
+
+Repeated at the start of M1 as `docker compose down -v` → `up --build` (fresh volumes, rebuilt
+image), which is what the original check did not do.
+
+**It failed the first time**, and the reason was only reachable from cold: `harness` depended on
+`gateway` with `condition: service_started`, so the API came up while LiteLLM was still binding
+its port and the `gather` node died with `Retry failed after 4 tries. (Connection refused
+(gateway:4000))`. The same race postgres had, on the service that had not been given a
+healthcheck. Fixed by probing `/health/liveliness` (the image ships no curl or wget, so the probe
+runs through its own python) and gating on `service_healthy`.
+
+Second cold run, with the fix — **pass**: run `4df12893-f5aa-4a48-b430-e2fee022b359`, status
+`Completed`, 9 events over `gather → review → post`, `{"intact":true}`, and
+[issuecomment-5052157090](https://github.com/deniz2412/test-repo-harness/pull/1#issuecomment-5052157090)
+on the test PR (8 findings, the compounding-discount bug correctly called critical).
+
+Worth noting for the record: the fail-closed behaviour worked exactly as designed under the
+failure — the run halted at the first node, was marked `Failed`, and the audit chain over the
+partial run still verified intact.
 
 ## Carried into M1
 
