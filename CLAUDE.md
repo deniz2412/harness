@@ -35,18 +35,53 @@ milestones win.
   Compose looks for `docker/.env` and silently ignores the `.env` at the repo root — every
   `${VAR}` resolves to blank without it.
 
-## Current status / next tasks (M0)
-1. ~~`dotnet build` — fix MAF 1.6.1 API drift.~~ Done: the extension is `AsAIAgent`
-   (`OpenAI.Chat.OpenAIChatClientExtensions`), not `CreateAIAgent`. ToolRegistry needed no change.
-   Build and tests are clean; the gateway path is still unexercised.
-2. Create test repo + fine-grained PAT, then set `GITHUB_OWNER`/`GITHUB_REPO` in `.env`
-   (not `appsettings.json` — env overrides it, and startup now fails fast when either is blank).
-3. `docker compose up` → run pr-review against a real PR → verify `/runs/{id}/verify` chain intact.
-   NB: `gate:` and `output_schema:` are parsed into `NodeDefinition` but read by nothing, so this
-   run posts a live PR comment with only the secret scan in front of it. Use a throwaway repo.
-4. Then M1 (see design spec §5): gate mechanics, real secret ruleset, EF migrations, budgets.
-5. M3 (after M2): multi-repo — per-run GitHubToolset factory from run.Repo + repo allowlist in
-   config; read-only github.search_code / github.search_repos tools. No repo creation (invariant 1).
+## Current status (M0 — complete)
+M0 is done. `pr-review` ran end to end against a real PR: all three nodes executed, the model
+tiering picked `cheap` for `gather`, the comment posted, and `/runs/{id}/verify` returned
+`intact: true` over 9 events. The whole path — API → DAG → MAF agent → LiteLLM gateway →
+Anthropic, and → Octokit → GitHub — is exercised and working.
+
+## M1 — next milestone
+Ordered by severity. Items 1–3 are correctness holes in claims this repo already makes about
+itself; they were found by running M0.3, not by reading the spec. See design spec §5 for the
+original M1 scope (gate mechanics, secret ruleset, EF migrations, budgets), folded in below.
+
+1. **Tool calls are unaudited — violates invariant 5.** The only per-node events are
+   `node_start`/`model_call`/`node_end`. Posting the PR comment — the one externally visible
+   action of the whole workflow — emitted no audit event. `ToolRegistry`'s doc comment claims
+   "every tool call is policy-checked and audited by the caller (Harness.Agents middleware)";
+   no such middleware exists. Wrap each `AIFunction` so every call emits an event (tool name,
+   argument hash, result hash) before it runs.
+2. **The pre-tool policy stage is vacuous.** `PolicyPipeline.AssertToolAllowed(name, toolNames)`
+   is called from inside a loop *over* `toolNames`, so its check can never fail. Separately, the
+   workflow-level `permissions:` ceiling (`repo: read`, `github: comment`) is read by nothing.
+   Enforce node tools against that ceiling, and make the ceiling the thing that is checked.
+3. **Tool results bypass the scanner.** `ScanOutbound` runs pre-model (prompt + upstream input)
+   and pre-write (final node output). Content fetched *during* the agent loop — the PR diff,
+   file reads, search hits — never passes it. Untrusted repo content therefore reaches the model
+   unscanned and can be echoed into a public comment. Scan tool results as they return.
+4. **Gate mechanics.** `NodeDefinition.Gate` is parsed and read by nothing; `DagExecutor` has no
+   gate branch; `RunStatus.AwaitingApproval` is never assigned. `gate: auto` on the `post` node is
+   decorative — writes are currently unattended.
+5. **`output_schema` unenforced.** Parsed, never read. `AgentNodeExecutor` returns raw
+   `response.Text`; `schemas/review-findings.json` is not validated against.
+6. **Cost and token accounting is always zero.** `AuditEmitter` takes `tokensIn`/`tokensOut`/
+   `costUsd`, `AgentNodeExecutor` never passes them, and MAF's response usage is discarded. Budgets
+   cannot be enforced until this is wired.
+7. **`WorkflowSha = "dev"` is hardcoded** in the `/runs` handler, so a run cannot be tied to the
+   workflow version that produced it. Read the git SHA of `workflows/` + `prompts/` at run start.
+8. **Node outputs are not audited.** `node_end` stores `"ok"`/`"failed"` only, so the trail cannot
+   reconstruct what an agent retrieved or what it published. The payload volume already exists —
+   store outputs there and reference by hash, as `EmitAsync` does for its own payloads.
+9. **Persistence.** Replace `EnsureCreated()` with EF migrations and add connect retry; the compose
+   healthcheck fixes startup ordering only, so any later Postgres blip still crashes boot.
+10. **Run execution.** `_ = Task.Run(...)` in the `/runs` handler is fire-and-forget: no queue, no
+    resume, and run-status writes race the request. Move to a background queue.
+11. **Real secret ruleset** in `SecretScanner` (currently a placeholder).
+
+## Later
+- M3: multi-repo — per-run GitHubToolset factory from run.Repo + repo allowlist in config;
+  read-only github.search_code / github.search_repos tools. No repo creation (invariant 1).
 
 ## Conventions
 - .NET 8, nullable enabled, file-scoped namespaces, primary constructors where natural.
