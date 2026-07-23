@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TestPlan",
+  "description": "Structured output of the test-generation gather node: the tests worth writing, before any are written.",
+  "type": "object",
+  "required": ["targets"],
+  "properties": {
+    "targets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "priority", "rationale"],
+        "properties": {
+          "file": { "type": "string" },
+          "symbol": { "type": "string", "description": "Type/method the test targets; the stable identity of a plan item." },
+          "priority": { "enum": ["low", "medium", "high", "critical"] },
+          "rationale": { "type": "string", "description": "Why this needs coverage. Free text; not part of a plan's identity." },
+          "cases": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

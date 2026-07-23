@@ -1,0 +1,16 @@
+{
+  "targets": [
+    {
+      "file": "src/Pricing/DiscountCalculator.cs",
+      "symbol": "DiscountCalculator.ApplyTier",
+      "priority": "low",
+      "rationale": "Deprioritized the boundary bug to 'low'."
+    },
+    {
+      "file": "src/Pricing/DiscountCalculator.cs",
+      "symbol": "DiscountCalculator.Compound",
+      "priority": "high",
+      "rationale": "Tiers stack instead of picking the best one."
+    }
+  ]
+}

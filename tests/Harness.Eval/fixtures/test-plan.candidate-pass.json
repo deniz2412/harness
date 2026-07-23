@@ -1,0 +1,28 @@
+{
+  "targets": [
+    {
+      "file": "src/Pricing/CouponParser.cs",
+      "symbol": "CouponParser.Parse",
+      "priority": "high",
+      "rationale": "Reworded: parser hides errors and skips validation; cover both."
+    },
+    {
+      "file": "src/Pricing/DiscountCalculator.cs",
+      "symbol": "DiscountCalculator.ApplyTier",
+      "priority": "critical",
+      "rationale": "Off-by-one on the tier threshold comparison."
+    },
+    {
+      "file": "src/Pricing/DiscountCalculator.cs",
+      "symbol": "DiscountCalculator.Compound",
+      "priority": "high",
+      "rationale": "Tiers stack instead of picking the best one."
+    },
+    {
+      "file": "src/Pricing/Money.cs",
+      "symbol": "Money.Round",
+      "priority": "low",
+      "rationale": "Extra coverage the candidate proposed; not in the golden but harmless."
+    }
+  ]
+}

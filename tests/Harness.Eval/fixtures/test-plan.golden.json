@@ -1,0 +1,25 @@
+{
+  "targets": [
+    {
+      "file": "src/Pricing/DiscountCalculator.cs",
+      "symbol": "DiscountCalculator.ApplyTier",
+      "priority": "critical",
+      "rationale": "Tier boundary uses > instead of >=; needs boundary-value tests.",
+      "cases": ["quantity exactly at a tier threshold", "one below", "one above"]
+    },
+    {
+      "file": "src/Pricing/DiscountCalculator.cs",
+      "symbol": "DiscountCalculator.Compound",
+      "priority": "high",
+      "rationale": "Discounts compound instead of applying only the single best tier.",
+      "cases": ["two applicable tiers stacked"]
+    },
+    {
+      "file": "src/Pricing/CouponParser.cs",
+      "symbol": "CouponParser.Parse",
+      "priority": "high",
+      "rationale": "Swallows exceptions and does not validate input.",
+      "cases": ["malformed code", "null input"]
+    }
+  ]
+}
