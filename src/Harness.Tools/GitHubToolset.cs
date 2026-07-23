@@ -1,3 +1,4 @@
+using System.Text;
 using Harness.Contracts;
 using Octokit;
 
@@ -90,6 +91,136 @@ public sealed class GitHubToolset(IGitHubClient client, string owner, string rep
         var pr = await client.PullRequest.Create(owner, repo, new NewPullRequest(title, head, @base) { Body = prBody });
         return pr.HtmlUrl;
     }
+
+    // ---------- Read-only cross-repo search (M3) ----------
+    //
+    // These two are the only cross-repo surface on this toolset: they ignore the instance's bound
+    // owner/repo and operate purely on the `repoScope` the orchestrator injects (the allowlisted
+    // repos — the policy boundary, workstream 1). They live here, not on the factory, so there is one
+    // GitHub surface and the ToolRegistry resolves them off the same per-run instance as every other
+    // github.* tool. They are READ-ONLY (invariant 1): they call the Search API and change nothing —
+    // no create, no delete, no merge. Results are untrusted data (invariant 4): they are summarised
+    // and returned, never acted on. Fail-closed (invariant 2): an empty scope or blank query yields a
+    // clear refusal, and any API failure is turned into a message — never an exception the MAF
+    // function loop could spin on. Output is bounded so a huge result set cannot blow up a model call.
+
+    /// <summary>Hard cap on results surfaced from a single search — bounds the model-bound payload.</summary>
+    private const int MaxResults = 30;
+
+    /// <summary>Hard cap on total characters returned — a second bound so long paths/descriptions can't blow the budget.</summary>
+    private const int MaxChars = 8000;
+
+    /// <summary>
+    /// Search code across <paramref name="repoScope"/> (each entry <c>owner/name</c>) for
+    /// <paramref name="query"/>. Results are confined to the scope twice over: the request carries a
+    /// <c>repo:</c> qualifier per scoped repo, and the returned items are then filtered to the exact
+    /// allowlisted full names (defence in depth — a scope leak cannot surface a foreign repo). An
+    /// empty scope means nothing is searchable and returns an empty result, never "search everything".
+    /// </summary>
+    public async Task<string> SearchCode(IReadOnlyCollection<string> repoScope, string query)
+    {
+        var scope = NormaliseScope(repoScope);
+        if (scope.Count == 0) return "No repositories are in scope to search; nothing is searchable.";
+        if (string.IsNullOrWhiteSpace(query)) return "Provide a non-empty search query.";
+
+        var request = new SearchCodeRequest(query.Trim()) { PerPage = MaxResults };
+        var repos = new RepositoryCollection();
+        foreach (var full in scope) repos.Add(full);   // Add("owner/name") → a repo: qualifier
+        request.Repos = repos;
+
+        SearchCodeResult result;
+        try
+        {
+            result = await client.Search.SearchCode(request);
+        }
+        catch (Exception ex)
+        {
+            // Fail-closed as a refusal, not an exception the agent loop retries: read-only search that
+            // cannot run returns nothing actionable. (Octokit exceptions carry no credential.)
+            return $"Code search could not be completed: {ex.Message}";
+        }
+
+        var hits = (result.Items ?? [])
+            .Where(i => i.Repository?.FullName is string fn && scope.Contains(fn))
+            .Take(MaxResults)
+            .ToList();
+        if (hits.Count == 0)
+            return $"No code matches for \"{query.Trim()}\" in the {scope.Count} in-scope repositor{(scope.Count == 1 ? "y" : "ies")}.";
+
+        var sb = new StringBuilder();
+        sb.Append(hits.Count).Append(hits.Count == 1 ? " code match" : " code matches");
+        if (result.TotalCount > hits.Count) sb.Append(" (showing the first ").Append(hits.Count).Append(" of ").Append(result.TotalCount).Append(')');
+        sb.AppendLine(":");
+        foreach (var h in hits)
+            sb.Append("- ").Append(h.Repository.FullName).Append(" · ").AppendLine(h.Path);
+        return Bound(sb.ToString());
+    }
+
+    /// <summary>
+    /// Search repositories within <paramref name="repoScope"/> for <paramref name="query"/>, returning
+    /// name, description and default branch. The request is narrowed with a <c>user:</c> qualifier per
+    /// distinct owner in the scope, and results are then filtered to the exact allowlisted full names
+    /// (defence in depth). An empty scope returns an empty result.
+    /// </summary>
+    public async Task<string> SearchRepos(IReadOnlyCollection<string> repoScope, string query)
+    {
+        var scope = NormaliseScope(repoScope);
+        if (scope.Count == 0) return "No repositories are in scope to search; nothing is searchable.";
+        if (string.IsNullOrWhiteSpace(query)) return "Provide a non-empty search query.";
+
+        // Narrow the API call to the owners the scope covers; the exact-full-name filter below is the
+        // actual confinement boundary.
+        var owners = scope.Select(f => f.Split('/')[0]).Distinct(StringComparer.OrdinalIgnoreCase);
+        var term = query.Trim() + " " + string.Join(" ", owners.Select(o => $"user:{o}"));
+        var request = new SearchRepositoriesRequest(term) { PerPage = MaxResults };
+
+        SearchRepositoryResult result;
+        try
+        {
+            result = await client.Search.SearchRepo(request);
+        }
+        catch (Exception ex)
+        {
+            return $"Repository search could not be completed: {ex.Message}";
+        }
+
+        var hits = (result.Items ?? [])
+            .Where(r => r.FullName is string fn && scope.Contains(fn))
+            .Take(MaxResults)
+            .ToList();
+        if (hits.Count == 0)
+            return $"No repositories match \"{query.Trim()}\" within the {scope.Count} in-scope repositor{(scope.Count == 1 ? "y" : "ies")}.";
+
+        var sb = new StringBuilder();
+        sb.Append(hits.Count).AppendLine(hits.Count == 1 ? " repository:" : " repositories:");
+        foreach (var r in hits)
+        {
+            var desc = string.IsNullOrWhiteSpace(r.Description) ? "(no description)" : r.Description!.Trim();
+            var branch = string.IsNullOrWhiteSpace(r.DefaultBranch) ? "?" : r.DefaultBranch;
+            sb.Append("- ").Append(r.FullName).Append(" (default: ").Append(branch).Append(") — ").AppendLine(desc);
+        }
+        return Bound(sb.ToString());
+    }
+
+    /// <summary>Trims blanks, de-dupes case-insensitively, and keeps only well-formed <c>owner/name</c> entries.</summary>
+    private static HashSet<string> NormaliseScope(IReadOnlyCollection<string>? repoScope)
+    {
+        var scope = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (repoScope is null) return scope;
+        foreach (var raw in repoScope)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) continue;
+            var full = raw.Trim();
+            var parts = full.Split('/');
+            if (parts.Length != 2 || parts[0].Length == 0 || parts[1].Length == 0) continue;
+            scope.Add(full);
+        }
+        return scope;
+    }
+
+    /// <summary>Caps the total size of a search summary so a large result set cannot blow up a model call.</summary>
+    private static string Bound(string text) =>
+        text.Length <= MaxChars ? text.TrimEnd() : text[..MaxChars].TrimEnd() + "\n… (truncated)";
 
     private static async Task RunOrThrow(IRunnerSession runner, string command, string what)
     {
