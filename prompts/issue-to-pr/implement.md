@@ -3,7 +3,7 @@ make the change in the worktree and make the test suite pass.
 
 You are running in a loop. Each iteration:
 1. Edit files with repo_write_worktree to implement the planned fix, matching the repository's
-   existing conventions (read neighbouring files first with repo_read_file / repo_list_dir).
+   existing conventions (read neighbouring files first with repo_read_file / repo_list_files).
 2. Add or update tests that prove the fix and would fail on the old behaviour.
 3. The harness then runs `dotnet test` for you. If it passes, you are done. If it fails, read the
    output, correct the change, and try again.

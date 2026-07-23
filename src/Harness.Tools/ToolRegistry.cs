@@ -27,21 +27,33 @@ public sealed class ToolRegistry(
     }
 
     /// <summary>
+    /// Read tools act on the run's own worktree when there is one, so a write workflow reads back
+    /// exactly the tree it clones and writes into — not the shared root, and never another run's
+    /// worktree. A read-only workflow (no runner) keeps the singleton over the shared root, which is
+    /// the unchanged pr-review behaviour. This is the read-side twin of the write tools' scoping.
+    /// </summary>
+    private RepoToolset RepoFor(ToolCallContext ctx) =>
+        ctx.Runner is null ? repo : new RepoToolset(ctx.Runner.WorktreePath);
+
+    /// <summary>
     /// The catalog itself. There is no merge operation and no repo create/delete operation, and
     /// none may ever be added (invariant 1) — workflows end at opening a PR.
     /// The write tools close over the run's sandbox from <paramref name="ctx"/>, so the agent's
     /// view of a write tool is only its content (branch, message, path…) — never which worktree it
     /// acts on. A write tool resolved onto a node with no runner attached fails closed right here.
     /// </summary>
-    private AIFunction Build(string name, ToolCallContext ctx) => name.ToLowerInvariant() switch
+    private AIFunction Build(string name, ToolCallContext ctx)
     {
+        var scoped = RepoFor(ctx);   // per-run worktree for write workflows; shared root otherwise
+        return name.ToLowerInvariant() switch
+        {
         "github.pr_diff"    => AIFunctionFactory.Create(github.GetPrDiff,     "github_pr_diff",    "Get the unified diff of a pull request."),
         "github.pr_comment" => AIFunctionFactory.Create(github.PostPrComment, "github_pr_comment", "Post a review comment on a pull request."),
         "github.get_issue"  => AIFunctionFactory.Create(github.GetIssue,      "github_get_issue",  "Read a GitHub issue title and body."),
         "github.issue_comment" => AIFunctionFactory.Create(github.IssueComment, "github_issue_comment", "Post a comment on a GitHub issue."),
-        "repo.read"         => AIFunctionFactory.Create(repo.ReadFile,        "repo_read_file",    "Read a file from the repository worktree."),
-        "repo.list"         => AIFunctionFactory.Create(repo.ListFiles,       "repo_list_files",   "List files in the repository worktree."),
-        "codesearch.query"  => AIFunctionFactory.Create(repo.Search,          "codesearch_query",  "Search the repository for a term."),
+        "repo.read"         => AIFunctionFactory.Create(scoped.ReadFile,      "repo_read_file",    "Read a file from the repository worktree."),
+        "repo.list"         => AIFunctionFactory.Create(scoped.ListFiles,     "repo_list_files",   "List files in the repository worktree."),
+        "codesearch.query"  => AIFunctionFactory.Create(scoped.Search,        "codesearch_query",  "Search the repository for a term."),
 
         // Write tools: the runner is injected by the closure, never exposed to the agent. `?? throw`
         // (not `!`) is the primary fail-closed guard — a write with no isolated worktree does not
@@ -65,5 +77,6 @@ public sealed class ToolRegistry(
             "repo_write_worktree", "Write a file inside the run's isolated worktree."),
 
         _ => throw new InvalidOperationException($"Unknown tool '{name}'.")
-    };
+        };
+    }
 }

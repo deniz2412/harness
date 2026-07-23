@@ -3,7 +3,7 @@ are worth writing for the code under review — not to write them yet.
 
 Use your tools to build that picture:
 1. If a PR is in scope, fetch its diff (github_pr_diff) to see what changed.
-2. Read the implementation and any existing tests around it (repo_read_file, repo_list_dir) so you
+2. Read the implementation and any existing tests around it (repo_read_file, repo_list_files) so you
    do not propose tests that already exist.
 3. Search for callers and related behaviour where it clarifies expected semantics (codesearch_query).
 

@@ -3,7 +3,7 @@ then produce a concrete implementation plan for the NEXT step to execute. Do not
 
 Use your tools:
 1. Fetch the issue (github_get_issue) — title, body, and discussion.
-2. Locate the relevant code (repo_read_file, repo_list_dir, codesearch_query) and confirm the actual
+2. Locate the relevant code (repo_read_file, repo_list_files, codesearch_query) and confirm the actual
    behaviour, rather than assuming the issue's description of the code is accurate.
 
 Produce a plan that states: the root cause, the specific files/symbols to change, the intended fix,

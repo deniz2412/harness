@@ -4,7 +4,7 @@ step, write the unit tests into the worktree and make the suite pass.
 You are running in a loop. Each iteration:
 1. Write or revise test files with repo_write_worktree, following the repository's existing test
    conventions (xunit, the `tests/` layout, pinned package versions — read a sibling test project
-   first with repo_read_file / repo_list_dir rather than inventing structure).
+   first with repo_read_file / repo_list_files rather than inventing structure).
 2. The harness then runs `dotnet test` for you. If it passes, you are done. If it fails, read the
    output, fix the tests (or narrow a test that encodes a wrong expectation), and try again.
 
