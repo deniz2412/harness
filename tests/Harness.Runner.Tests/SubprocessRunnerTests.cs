@@ -59,6 +59,37 @@ public sealed class SubprocessRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Resume_reuses_the_runs_worktree_and_preserves_uncommitted_work()
+    {
+        // A run does work before a human gate, then the run resumes and pushes it. The factory must
+        // hand a resumed run the SAME worktree, with the uncommitted changes intact — re-cloning
+        // would discard the approved work. Same run id twice models the pause→resume path.
+        var factory = Factory();
+        var run = NewRun();
+
+        var first = await factory.CreateAsync(run, "HEAD", CancellationToken.None);
+        var worktree = first.WorktreePath;
+        await File.WriteAllTextAsync(Path.Combine(worktree, "generated-test.cs"), "// work before the gate");
+        // Note: NOT disposed — that is exactly what DagExecutor does at a gate pause (keep the tree).
+
+        var resumed = await factory.CreateAsync(run, "HEAD", CancellationToken.None);
+
+        Assert.Equal(worktree, resumed.WorktreePath);            // same directory, keyed by run id
+        Assert.True(File.Exists(Path.Combine(resumed.WorktreePath, "generated-test.cs")));  // work survived
+        await resumed.DisposeAsync();
+        Assert.False(Directory.Exists(worktree));               // and cleanup still deletes it at the end
+    }
+
+    [Fact]
+    public async Task Two_different_runs_get_different_worktrees()
+    {
+        var factory = Factory();
+        await using var a = await factory.CreateAsync(NewRun(), "HEAD", CancellationToken.None);
+        await using var b = await factory.CreateAsync(NewRun(), "HEAD", CancellationToken.None);
+        Assert.NotEqual(a.WorktreePath, b.WorktreePath);        // distinct run ids ⇒ isolated trees
+    }
+
+    [Fact]
     public async Task Allowlisted_command_returns_its_real_exit_code()
     {
         await using var session = await Factory().CreateAsync(NewRun(), "HEAD", CancellationToken.None);

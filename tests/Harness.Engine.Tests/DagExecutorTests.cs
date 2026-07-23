@@ -234,7 +234,7 @@ public class DagExecutorTests
     }
 
     [Fact]
-    public async Task Paused_write_run_disposes_its_session_and_resume_creates_a_fresh_one()
+    public async Task Paused_write_run_keeps_its_worktree_and_resume_reuses_it_then_disposes()
     {
         var f = Harness();
         var wf = WriteWf(N("plan"), Gated("approve", "human", "plan"));
@@ -242,14 +242,33 @@ public class DagExecutorTests
 
         await f.Exec.ExecuteAsync(run, wf, CancellationToken.None);
         Assert.Equal(RunStatus.AwaitingApproval, run.Status);
-        Assert.True(f.Runners.Sessions[0].Disposed);           // torn down on the pause
+        // The worktree must survive the pause: the work done before the gate has to be there to push
+        // after approval. Disposing here (deleting the worktree) is exactly the bug the live run hit.
+        Assert.False(f.Runners.Sessions[0].Disposed);
 
         await f.Approvals.DecideAsync(run.Id, "approve", GateDecision.Approved, "deniz", null);
         await f.Exec.ExecuteAsync(run, wf, CancellationToken.None);
 
         Assert.Equal(RunStatus.Completed, run.Status);
-        Assert.Equal(2, f.Runners.Created.Count);              // a fresh session on resume
-        Assert.True(f.Runners.Sessions[1].Disposed);
+        // Resume asks the factory for the run's worktree again (the real factory reuses the same
+        // directory, keyed by run id — proven in the runner tests); on completion it is disposed.
+        Assert.Equal(2, f.Runners.Created.Count);
+        Assert.True(f.Runners.Sessions[^1].Disposed);          // torn down only now, at the end
+    }
+
+    [Fact]
+    public async Task Rejected_write_run_disposes_its_worktree()
+    {
+        var f = Harness();
+        var wf = WriteWf(N("plan"), Gated("approve", "human", "plan"));
+        var run = NewRun();
+
+        await f.Exec.ExecuteAsync(run, wf, CancellationToken.None);   // pauses
+        await f.Approvals.DecideAsync(run.Id, "approve", GateDecision.Rejected, "deniz", "no");
+        await f.Exec.ExecuteAsync(run, wf, CancellationToken.None);   // resumes → rejected
+
+        Assert.Equal(RunStatus.Rejected, run.Status);
+        Assert.True(f.Runners.Sessions[^1].Disposed);          // a terminated run cleans up its sandbox
     }
 
     // --- bash node ----------------------------------------------------------------------------

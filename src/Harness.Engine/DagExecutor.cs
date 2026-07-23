@@ -54,17 +54,27 @@ public sealed class DagExecutor(
         // A write-capable workflow (permission ceiling declares repo: write-worktree) gets a per-run
         // sandbox; a read-only one (pr-review) never calls the factory, so its behaviour is
         // unchanged and Runner stays null. baseRef "HEAD" is the sentinel for "the runner resolves
-        // the repo's default branch" — the engine does not hardcode "main".
-        // The session is disposed on every exit below, including a gate pause: a paused run's
-        // worktree is torn down and a fresh one is created on resume (a durable worktree across a
-        // pause is out of scope for M2).
+        // the repo's default branch" — the engine does not hardcode "main". On resume the factory
+        // reuses this run's existing worktree (keyed by run id), so the work done before the gate is
+        // still there to push.
         IRunnerSession? session = IsWriteCapable(wf)
             ? await runners.CreateAsync(run, "HEAD", ct)
             : null;
 
-        await using (session)
+        try
         {
             await RunNodesAsync(run, wf, session, ct);
+        }
+        finally
+        {
+            // The worktree must OUTLIVE a gate pause: a write workflow does its work (uncommitted
+            // changes in the tree) before the human gate, and push happens only after approval, on
+            // resume. Tearing the worktree down at the pause would leave nothing to push. So dispose
+            // — which deletes the worktree — only when the run has truly ended; a paused run keeps
+            // its sandbox for resume. (An abandoned pause leaks a worktree until a TTL reaper, which
+            // is future work; noted in the threat model.)
+            if (session is not null && run.Status is not RunStatus.AwaitingApproval)
+                await session.DisposeAsync();
         }
     }
 

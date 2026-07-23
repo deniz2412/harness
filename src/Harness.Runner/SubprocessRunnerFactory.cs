@@ -57,11 +57,24 @@ public sealed class SubprocessRunnerFactory : IRunnerFactory
         if (string.IsNullOrWhiteSpace(baseRef))
             throw new ArgumentException("baseRef must be a branch/SHA or the \"HEAD\" sentinel.", nameof(baseRef));
 
-        var target = Path.Combine(_options.WorktreeRoot, $"{run.Id:N}-{Guid.NewGuid():N}");
+        // The worktree path is deterministic per run (the run id), not random, so that RESUMING a run
+        // finds the same worktree. A write workflow does its work (writes files into the tree) before
+        // the human gate; those changes are uncommitted until push_branch. If resume re-cloned into a
+        // fresh directory, the approved work would be gone and there would be nothing to push. So an
+        // already-populated worktree for this run is reused as-is; the caller (DagExecutor) is what
+        // keeps it alive across the pause by not disposing the session then.
+        var target = Path.Combine(_options.WorktreeRoot, run.Id.ToString("N"));
+        if (Directory.Exists(Path.Combine(target, ".git")))
+            return new SubprocessRunnerSession(target, _options);
+
+        // Not a resume (or a stale remnant): clear anything left behind, then clone fresh. git
+        // requires `target` not to pre-exist as a non-empty directory.
+        WorktreeCleanup.TryDelete(target);
+
         var remote = _remoteUrlProvider(run);
 
         // Shallow, single-branch clone. With the HEAD sentinel we omit --branch so git resolves the
-        // repo's default branch itself (never assume "main"). git creates `target`; it must not pre-exist.
+        // repo's default branch itself (never assume "main"). git creates `target`.
         var args = new List<string> { "clone", "--depth", "1", "--single-branch" };
         if (!string.Equals(baseRef, DefaultBranchSentinel, StringComparison.Ordinal))
         {
