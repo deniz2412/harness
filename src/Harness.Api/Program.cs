@@ -216,8 +216,10 @@ app.MapPost("/runs/{id:guid}/gates/{node}/decide", async (
 });
 
 // The operations console (Blazor Server) is served from the root of this same process — a client of
-// the services above, loopback-only like the rest of the API. UseAntiforgery guards its interactive
-// form posts (gate decisions, launch); the JSON API endpoints above take no form input.
+// the services above, loopback-only like the rest of the API. UseStaticFiles serves the console's
+// stylesheet from wwwroot; UseAntiforgery guards its interactive form posts (gate decisions,
+// launch); the JSON API endpoints above take no form input.
+app.UseStaticFiles();
 app.UseAntiforgery();
 app.MapRazorComponents<Harness.Api.Components.App>().AddInteractiveServerRenderMode();
 
