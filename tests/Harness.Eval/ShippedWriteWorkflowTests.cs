@@ -27,6 +27,8 @@ public class ShippedWriteWorkflowTests
     [Theory]
     [InlineData("test-generation")]
     [InlineData("issue-to-pr")]
+    [InlineData("coverage-gap-analysis")]
+    [InlineData("regression-suite-author")]
     public void Loads_and_is_pinned(string name)
     {
         var loader = Loader();
@@ -40,6 +42,8 @@ public class ShippedWriteWorkflowTests
     [Theory]
     [InlineData("test-generation")]
     [InlineData("issue-to-pr")]
+    [InlineData("coverage-gap-analysis")]
+    [InlineData("regression-suite-author")]
     public void Declares_a_write_ceiling_so_the_engine_provisions_a_sandbox(string name)
     {
         var wf = Loader().Load(name);
@@ -51,6 +55,8 @@ public class ShippedWriteWorkflowTests
     [Theory]
     [InlineData("test-generation")]
     [InlineData("issue-to-pr")]
+    [InlineData("coverage-gap-analysis")]
+    [InlineData("regression-suite-author")]
     public void A_human_gate_precedes_the_pr_open_node(string name)
     {
         var wf = Loader().Load(name);
@@ -67,6 +73,8 @@ public class ShippedWriteWorkflowTests
     [Theory]
     [InlineData("test-generation")]
     [InlineData("issue-to-pr")]
+    [InlineData("coverage-gap-analysis")]
+    [InlineData("regression-suite-author")]
     public void Never_references_a_merge_capability(string name)
     {
         var wf = Loader().Load(name);
@@ -81,7 +89,8 @@ public class ShippedWriteWorkflowTests
     [Fact]
     public void Agent_loop_nodes_validate_with_dotnet_test_and_are_bounded()
     {
-        foreach (var name in new[] { "test-generation", "issue-to-pr" })
+        foreach (var name in new[]
+                 { "test-generation", "issue-to-pr", "coverage-gap-analysis", "regression-suite-author" })
         {
             var wf = Loader().Load(name);
             var loop = Assert.Single(wf.Nodes, n => n.Kind == "agent-loop");

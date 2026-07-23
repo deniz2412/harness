@@ -1,0 +1,49 @@
+name: regression-suite-author
+description: >-
+  Build a thorough CHARACTERIZATION suite for a specified, under-tested module — the safety net you
+  add before a refactor. It systematically pins the module's current observable behaviour (normal
+  cases, boundaries, error/edge paths) as tests that PASS against the code as-is, so `dotnet test`
+  stays green. Read-heavy up front; the only externally visible writes are a pushed branch and an
+  opened PR, both behind a human gate. Never merges.
+# Write intent: this ceiling is what makes the engine spin up a runner sandbox for the run.
+permissions:
+  repo: write-worktree
+  github: open_pr+issues
+nodes:
+  # 1. Choose the target module and map the behaviours a characterization suite must pin. Read-only.
+  #    Target selection is repo-agnostic: if a PR is in scope, characterize what it touches; otherwise
+  #    the agent discovers the most complex / least-tested module and its sibling test project itself.
+  - id: plan
+    kind: agent
+    prompt_ref: regression-suite-author/plan.md
+    tools: [github.pr_diff, repo.read, repo.list, codesearch.query]
+
+  # 2. Author the characterization tests into the worktree and iterate until `dotnet test` passes.
+  #    Every test asserts ACTUAL current behaviour so the suite goes green (fail-closed: if it never
+  #    goes green within max_iterations, the node fails and nothing is pushed). Behaviour that looks
+  #    buggy is captured as a passing test plus a SUSPECT: note for the PR — never asserted as a
+  #    "correct" value that would turn the suite red and block the gate.
+  - id: author-suite
+    kind: agent-loop
+    depends_on: [plan]
+    prompt_ref: regression-suite-author/author-suite.md
+    tools: [repo.read, repo.list, codesearch.query, repo.write_worktree]
+    until: validation_pass
+    run: "dotnet test"
+    max_iterations: 5
+    fresh_context: true
+
+  # 3. HARD human gate. Nothing externally visible has happened yet; the initiator approves here.
+  - id: approve
+    kind: gate
+    depends_on: [author-suite]
+    gate: human
+    approvers: [initiator]
+
+  # 4. Push the branch and open ONE PR describing the module characterized, the behaviours pinned,
+  #    and any SUSPECT: notes. The workflow ENDS here — there is no merge step.
+  - id: open-pr
+    kind: agent
+    depends_on: [approve]
+    prompt_ref: regression-suite-author/open-pr.md
+    tools: [github.push_branch, github.open_pr]

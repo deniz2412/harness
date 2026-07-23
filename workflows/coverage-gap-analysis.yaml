@@ -1,0 +1,66 @@
+name: coverage-gap-analysis
+description: >-
+  Measure line coverage on a .NET repository, find the least-covered production code, and author
+  passing characterization tests that close the biggest gap — then open a human-gated PR carrying
+  them plus a before/after coverage summary. Deterministic tools measure; the agent triages and
+  writes; a human approves. The only externally visible writes are a pushed branch and an opened
+  PR, both behind a human gate. Ends at the PR; never merges.
+# Write intent: this ceiling is what makes the engine spin up a runner sandbox for the run
+# (git + dotnet available). Without it there is no worktree for the write/coverage steps to act in.
+permissions:
+  repo: write-worktree
+  github: open_pr+issues
+nodes:
+  # 1. Map the production code under test and LOCATE the test project(s). Read-only tools.
+  #    Repo-agnostic: the test-project path is discovered here, never hardcoded downstream.
+  - id: gather
+    kind: agent
+    prompt_ref: coverage-gap-analysis/gather.md
+    tools: [github.pr_diff, repo.read, repo.list, codesearch.query]
+
+  # 2. Enable coverage collection. The target test project does not reference coverlet.collector,
+  #    so the agent reads the .csproj found in step 1 and writes it back with a pinned collector
+  #    reference added. Done via an agent (not bash) so the discovered path stays repo-agnostic.
+  - id: enable-coverage
+    kind: agent
+    depends_on: [gather]
+    prompt_ref: coverage-gap-analysis/enable-coverage.md
+    tools: [repo.read, repo.list, repo.write_worktree]
+
+  # 3. Measure coverage. Generic command — works on any .NET solution, no repo-specific path.
+  #    The sandbox tokenises argv (no shell): --collect:"XPlat Code Coverage" becomes one argument.
+  #    Writes coverage/<guid>/coverage.cobertura.xml (line-rate per class). One command, no operators.
+  - id: measure
+    kind: bash
+    depends_on: [enable-coverage]
+    run: dotnet test --collect:"XPlat Code Coverage" --results-directory coverage
+
+  # 4. Read the cobertura report, pick the biggest coverage gap, and author PASSING characterization
+  #    tests for it. Loops until `dotnet test` exits 0 (fail-closed: if the suite never goes green
+  #    within max_iterations, the node fails and nothing is pushed). Characterization tests assert
+  #    ACTUAL current behaviour; suspected bugs are surfaced as SUSPECT: lines, never asserted.
+  - id: raise-coverage
+    kind: agent-loop
+    depends_on: [measure]
+    prompt_ref: coverage-gap-analysis/raise-coverage.md
+    tools: [repo.read, repo.list, codesearch.query, repo.write_worktree]
+    until: validation_pass
+    run: "dotnet test"
+    max_iterations: 5
+    fresh_context: true
+
+  # 5. HARD human gate. Nothing externally visible has happened yet; the initiator approves here.
+  #    This gate MUST precede any push/PR — that is the fail-closed write contract.
+  - id: approve
+    kind: gate
+    depends_on: [raise-coverage]
+    gate: human
+    approvers: [initiator]
+
+  # 6. Push the branch and open ONE PR describing which code gained coverage, the before/after
+  #    coverage, and any SUSPECT: lines. The workflow ENDS here — there is no merge step or tool.
+  - id: open-pr
+    kind: agent
+    depends_on: [approve]
+    prompt_ref: coverage-gap-analysis/open-pr.md
+    tools: [github.push_branch, github.open_pr]
