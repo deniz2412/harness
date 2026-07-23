@@ -50,7 +50,7 @@ public sealed class ToolCatalog
     /// here means the guarantee does not rest on nobody ever editing the data file.
     /// </summary>
     private static readonly Regex ForbiddenToolName = new(
-        @"(?i)(?:^|[._])(?:merge|create_repo|repo_create|delete_repo|repo_delete|create_repository|delete_repository)(?:$|[._])",
+        @"(?i)(?:^|[._])(?:merge|fork|create_repo|repo_create|delete_repo|repo_delete|create_repository|delete_repository)(?:$|[._])",
         RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
     private static readonly Lazy<ToolCatalog> LazyDefault =

@@ -214,6 +214,8 @@ public class ToolPermissionTests
     [InlineData("github.pr_merge")]
     [InlineData("github.create_repo")]
     [InlineData("github.delete_repository")]
+    [InlineData("github.fork")]            // invariant 1 names fork explicitly (M3 review)
+    [InlineData("repo.fork_repo")]
     public void A_catalog_that_declares_a_forbidden_capability_is_rejected(string forbidden)
     {
         var yaml = $"""

@@ -5,6 +5,48 @@ milestone; newest first.
 
 ---
 
+## M3 — Multi-repo & search (2026-07-23)
+
+Independent review gate audited the full M3 diff `6464ac5..HEAD`. Verdict: **all 7 invariants hold,
+exit criterion MET, zero scope creep, no MAJORs.** Per-run GitHub binding closes the M2 "split
+source of truth" — the runner clones `run.Repo` and the GitHub tools now bind to the same
+`ctx.Repo`. Search is read-only and confined to the allowlist two ways (request `repo:`/`user:`
+qualifier AND an exact-full-name post-filter); a crafted query cannot surface a repo outside the
+allowlist. The allowlist is enforced fail-closed before run creation and re-checked on resume; an
+empty allowlist is deny-all (and fails startup).
+
+Exit judged met on a demonstrably-correct mechanism: the single-repo live demo (allowlist rejects a
+non-allowlisted/malformed repo; the allowlisted repo runs via the per-run factory and comments on
+`run.Repo`) plus comprehensive offline multi-repo tests. A second *live* allowlisted repo is
+confirmatory, not necessary (it needs a broader PAT — a legitimate token-scope deferral, matching
+the spec's "GitHub App when more repos join"). No shipped workflow uses search yet — acceptable, as
+the spec adds the *capability*; a search-using workflow is an invariant-6 data change.
+
+### MINORS — fixed
+
+- **M3-min-4 — the forbidden-name guard omitted `fork`** (pre-existing; invariant 1 names fork
+  explicitly). **Fixed**: added `fork` to `ToolCatalog.ForbiddenToolName`, with test cases — a
+  catalog declaring `github.fork`/`repo.fork_repo` is now rejected at load.
+- **M3-min-2 — dead config.** `appsettings.json` still carried `GitHub:Owner/Repo` (and compose
+  passed `GitHub__Owner/__Repo`), which nothing reads after the per-run un-binding. **Removed**, with
+  a comment pointing at `RepoAllowlist`.
+
+### MINORS — carried as tracked residuals
+
+- **M3-min-1 — wildcard allowlist entries are inert for code search.** An `owner/*` entry is honored
+  for run-targeting but produces an invalid `repo:owner/*` search qualifier + an exact post-filter
+  that never matches, so a wildcard-only allowlist returns zero search results. Fail-closed and
+  cannot leak, but "agents can search" is false for a wildcard operator. **Documented** the
+  constraint in the `appsettings` allowlist comment (search scopes to exact `owner/name` entries).
+  Full fix (expand a wildcard owner to a `user:owner` qualifier + owner-level post-filter) is a
+  follow-up in `GitHubToolset`. Current config uses an exact entry, so live search works.
+- **M3-min-3 — `RepoAllowlist.Assert()` doc vs. reality.** Production enforces via `IsAllowed()`
+  (which reflects `req.Repo` into the JSON-escaped error body); `Assert()`'s non-echoing protection
+  is unused. Low risk (escaped response to the submitter). Align the doc or route production through
+  `Assert()` — noted, not changed.
+
+---
+
 ## M2 — Write path (2026-07-23)
 
 Independent review gate audited the full M2 diff `f732367..HEAD`. Verdict: **all 7 invariants hold**
