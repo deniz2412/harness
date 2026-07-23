@@ -5,6 +5,63 @@ milestone; newest first.
 
 ---
 
+## M2 — Write path (2026-07-23)
+
+Independent review gate audited the full M2 diff `f732367..HEAD`. Verdict: **all 7 invariants hold**
+(the no-merge headline invariant defended in depth — command allowlist is `{git, dotnet}` only, the
+catalog loader regex-rejects merge/repo-lifecycle names, the tool switch is closed, negative tests
+assert no merge API is ever called), **zero scope creep**, exit criterion partially met pending the
+live witnessed run.
+
+### MAJOR — fixed
+
+- **M2-1 — read tools were not scoped to the run's worktree.** Only `repo.write_worktree` used the
+  per-run clone; `repo.read`/`repo.list`/`codesearch.query` still pointed at the shared
+  `/data/worktrees` root. In a write workflow the agent could not read the files it had just cloned
+  and written (they live under `{root}/{runid}/…`), and `list`/`search` enumerated every concurrent
+  run's worktree — a cross-run visibility gap. **Fixed** (commit *M2 review MAJOR (M2-1)*):
+  `ToolRegistry` routes read tools through `RepoFor(ctx)` — the run's own worktree when a runner is
+  attached, the shared root only for read-only workflows (pr-review unchanged). 4 new tests pin it.
+  The review predicted the pending live run would surface this; it did (the first witnessed run,
+  against the pre-fix code, showed the implement agent reading the wrong tree), which is why the fix
+  landed before the clean witnessed run.
+
+### MINORS — fixed
+
+- **Prompt/tool-name mismatch:** four write prompts referenced `repo_list_dir`; the registered tool
+  is `repo_list_files`. **Fixed** — the agent no longer wastes a call on a 404.
+
+### MINORS — carried as tracked residuals
+
+- **F11 — the subprocess runner has no egress control.** The bash/agent-loop validation runs
+  untrusted `dotnet test` (NuGet restore + arbitrary cloned code) with unrestricted outbound
+  network. Honestly disclosed in the runner code and `docs/threat-model.md`; closes only with the
+  container drop-in (documented seam). The threat-model F11 row (which read "M2 — blocks the
+  runner") is annotated to reflect the deliberate re-deferral to the container implementation,
+  acceptable for a single-workstation PoC.
+- **Gate-before-write is a data+test guarantee, not engine-structural.** Nothing in the engine
+  forces a node holding `push_branch`/`open_pr` to depend on a human gate — it is enforced by how
+  the two workflows are authored (invariant 6, change-controlled) plus `ShippedWriteWorkflowTests`.
+  A policy control that *requires* a preceding human gate for write-frontier tools is the right
+  defense-in-depth; noted for M7's org policy floor (`policy.yaml`), where per-vision-doc that class
+  of rule ("any `github.open_pr` requires `gate: human`") belongs.
+- **Split source of truth for the target repo:** the runner clones `run.Repo` (request) while
+  `GitHubToolset` push/open_pr act on the startup-configured owner/repo. Harmless while they are the
+  same single repo; the per-run `GitHubToolset` factory + repo allowlist is M3, correctly not pulled
+  forward.
+- **Token briefly in git argv** on a shared host (runner clone URL) — PoC-acceptable, closed by the
+  container implementation; already in the threat model.
+
+### Descope recorded
+
+- **Archon bake-off** (spec §5 M2 "Archon-vs-platform bake-off data in hand"): descoped to
+  *eval-harness-ready* — the external Archon pilot is unavailable here. The golden-run comparator
+  (`tests/Harness.Eval`, tolerant + explainable, 13 tests) provides the comparison capability; there
+  is simply no Archon data to feed it. The design-spec M2 status line is annotated to record this so
+  it does not read as an unmet deliverable.
+
+---
+
 ## M1 — Governance hardening (2026-07-23)
 
 Independent review gate (a fresh agent, not involved in implementation) audited the full M1 diff

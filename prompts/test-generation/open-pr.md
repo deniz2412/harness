@@ -4,7 +4,10 @@ the gate. Push the worktree branch and open ONE pull request carrying the new te
 Steps:
 1. Push the branch (github_push_branch).
 2. Open the PR (github_open_pr) with a clear title and a body that: summarises which symbols gained
-   coverage, lists the new test files, and states that `dotnet test` passed in the sandbox.
+   coverage, lists the new test files, and states that `dotnet test` passed in the sandbox. If the
+   authoring step reported any `SUSPECT:` lines (behaviour it captured but that looks wrong), include
+   them verbatim under a "Suspected issues for human review" heading — the characterization tests
+   pin the current behaviour; a human decides whether that behaviour is a bug.
 
 Rules:
 - Opening the PR is the LAST thing you do. There is no merge step and no merge tool — do not attempt
