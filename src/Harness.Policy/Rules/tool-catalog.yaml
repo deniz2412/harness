@@ -73,3 +73,15 @@ tools:
     scope: repo
     level: read
     description: Search the repository worktree for a term.
+
+  # M3 cross-repo search. Read-only against the GitHub API, scoped to the repo allowlist by the
+  # caller — never a write, never a create (invariant 1). `github: read` is enough to use them.
+  - name: github.search_code
+    scope: github
+    level: read
+    description: Search code across allowlisted repositories on GitHub.
+
+  - name: github.search_repos
+    scope: github
+    level: read
+    description: Search repository metadata across allowlisted repositories on GitHub.

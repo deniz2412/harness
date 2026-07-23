@@ -175,6 +175,9 @@ public class ToolPermissionTests
             ("github.push_branch", "github", "open_pr+issues"),
             ("github.open_pr", "github", "open_pr+issues"),
             ("repo.write_worktree", "repo", "write-worktree"),
+            // M3 read-only cross-repo search surface
+            ("github.search_code", "github", "read"),
+            ("github.search_repos", "github", "read"),
         };
 
         foreach (var (tool, scope, level) in expected)
