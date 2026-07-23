@@ -46,6 +46,25 @@ public class AgentLoopNodeExecutorTests
     }
 
     [Fact]
+    public async Task Validation_failure_is_fed_back_to_the_next_iteration()
+    {
+        var agent = new FakeAgentIteration();
+        var audit = new FakeAuditLog();
+        var exec = new AgentLoopNodeExecutor(agent, audit);
+        // First dotnet test fails with a specific compiler error, then passes.
+        var runner = FakeRunnerSession.FailsOnceWith("error CS0103: The name 'Discount' does not exist");
+
+        var result = await exec.ExecuteAsync(Ctx(LoopNode(maxIterations: 5), runner), CancellationToken.None);
+
+        Assert.True(result.Success);
+        // The first iteration gets no feedback; the second must carry the first's failure output —
+        // this is what was missing and made the loop reproduce the same failure every attempt.
+        Assert.Null(agent.FeedbackSeen[0]);
+        Assert.Contains("error CS0103", agent.FeedbackSeen[1]);
+        Assert.Contains("exit 1", agent.FeedbackSeen[1]);
+    }
+
+    [Fact]
     public async Task Iterates_until_validation_passes_then_succeeds()
     {
         var agent = new FakeAgentIteration();

@@ -53,6 +53,16 @@ internal sealed class FakeRunnerSession(Func<string, CommandResult> script) : IR
         return new FakeRunnerSession(_ =>
             new CommandResult(++calls > failures ? 0 : 1, "", ""));
     }
+
+    /// <summary>A sandbox whose validation fails once with a distinctive error on stdout, then passes —
+    /// so a test can prove that error is forwarded to the next iteration.</summary>
+    public static FakeRunnerSession FailsOnceWith(string stderrText)
+    {
+        var calls = 0;
+        return new FakeRunnerSession(_ => ++calls == 1
+            ? new CommandResult(1, "", stderrText)
+            : new CommandResult(0, "", ""));
+    }
 }
 
 /// <summary>
@@ -63,11 +73,16 @@ internal sealed class FakeAgentIteration(string text = "did the work") : IAgentI
 {
     public int Calls { get; private set; }
     public List<object?> ThreadsSeen { get; } = [];
+    /// <summary>The feedback string handed to each call — null on the first, the prior validation
+    /// failure thereafter. Lets a test assert the loop actually forwards validation output.</summary>
+    public List<string?> FeedbackSeen { get; } = [];
 
-    public Task<(string Text, object? Thread)> RunAsync(NodeContext ctx, object? thread, CancellationToken ct)
+    public Task<(string Text, object? Thread)> RunAsync(
+        NodeContext ctx, object? thread, string? feedback, CancellationToken ct)
     {
         Calls++;
         ThreadsSeen.Add(thread);
+        FeedbackSeen.Add(feedback);
         // Return a stable non-null thread token so a continued-context loop has something to carry.
         return Task.FromResult<(string, object?)>((text, "thread-token"));
     }
