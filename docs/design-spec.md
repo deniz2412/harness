@@ -3,11 +3,12 @@
 **Bank-owned AI coding harness on Microsoft Agent Framework (.NET), running on Docker Desktop**
 **Companion to:** AI-Harness-Analysis-and-Plan.md, Internal-Harness-Build-Analysis.md,
 Harness-Product-Vision-Roadmap.md (long-term horizons beyond M4)
-**Date:** 23 Jul 2026 · **Status:** v2.4 — local MVP scope; **M0 ✅, M1 ✅, M2 ✅ complete and
-verified** (exit checks in `docs/m0-exit-check.md`, `docs/m1-exit-check.md`, `docs/m2-exit-check.md`;
-reviews in `REVIEW.md`). M2's write path was demonstrated live: a human-gated PR
-(test-repo-harness#2). Next: M3 (multi-repo & search), not started. Copies of this doc live in the
-repo at `harness/docs/` — keep both in sync.
+**Date:** 23 Jul 2026 · **Status:** v2.5 — local MVP scope; **M0 ✅, M1 ✅, M2 ✅, M3 ✅ complete and
+verified** (exit checks in `docs/m0-exit-check.md` … `docs/m3-exit-check.md`; reviews in `REVIEW.md`).
+M2's write path was demonstrated live (human-gated PR test-repo-harness#2); M3 un-bound tooling to
+per-run repos behind a fail-closed allowlist. Next: F1 (operations console), not started — needs a
+Blazor-vs-React decision at the checkpoint. Copies of this doc live in the repo at `harness/docs/` —
+keep both in sync.
 
 ---
 
@@ -281,7 +282,17 @@ no Archon-vs-platform comparison data exists yet; feed Archon outputs in when av
 isolation ships as a subprocess sandbox, not a container (documented drop-in); egress control (F11)
 and a least-privilege DB role (F4) remain graduation-time residuals.
 
-**M3 — Multi-repo & search (≈1–2 wks).**
+**M3 — Multi-repo & search (≈1–2 wks). ✅ Complete (23 Jul 2026).**
+Delivered: `GitHubToolsetFactory.ForRepo(run.Repo)` (per-run, closing the M2 split-source-of-truth);
+a fail-closed config `RepoAllowlist` (exact or `owner/*`) enforced at `POST /runs` and resume; and
+read-only `github.search_code`/`search_repos` confined to the allowlist (request qualifier + exact
+post-filter, double-bounded, fail-closed on empty scope). No repo create/delete/fork; the catalog
+guard now also rejects `fork`. Demonstrated live — allowlist refuses a non-allowlisted/malformed
+repo, the allowlisted repo runs via the per-run factory. The PAT stays (GitHub App is the
+"when more repos join" item); a second live repo is confirmatory, not required. See
+`docs/m3-exit-check.md`, `REVIEW.md`.
+
+**M3 — Multi-repo & search (original scope).**
 Un-bind GitHub tooling from startup config: `GitHubToolset` becomes **per-run** (factory from
 `run.Repo`), validated against a **repo allowlist** in config — the allowlist is a policy control,
 not plumbing. Add read-only cross-repo search tools (`github.search_code`, `github.search_repos`).

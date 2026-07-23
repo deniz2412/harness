@@ -45,8 +45,8 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅ — done and verified.** Exit checks in `docs/m0-exit-check.md`,
-`docs/m1-exit-check.md`, `docs/m2-exit-check.md`; review gates in `REVIEW.md`.
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅ — done and verified.** Exit checks in `docs/m0-exit-check.md`,
+`docs/m1-exit-check.md`, `docs/m2-exit-check.md`, `docs/m3-exit-check.md`; review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -58,16 +58,22 @@ Docs (in-repo, canonical for this codebase):
   golden-run eval harness. **Demonstrated live:** a human-gated `test-generation` run opened a real
   PR (test-repo-harness#2) — writes gated, ending at a PR, no merge. 228 offline tests.
 
-**Next: M3 — multi-repo & search.** Do NOT start it without explicit go-ahead. Residuals that feed
-later work, tracked in `REVIEW.md`/`docs/threat-model.md`: no auth + caller-supplied initiator (F1)
-and no least-privilege DB role (F4) remain open; the runner has no egress control (F11 — closes
-with the container drop-in). These matter more as the write path widens.
+- **M3** un-bound GitHub tooling from a single startup repo: `GitHubToolsetFactory.ForRepo(run.Repo)`
+  (per-run, closing the M2 split-source-of-truth), a fail-closed config `RepoAllowlist` (exact or
+  `owner/*`) enforced at `POST /runs` and resume, and read-only `github.search_code`/`search_repos`
+  confined to the allowlist. **Demonstrated live:** a non-allowlisted/malformed repo is refused; the
+  allowlisted repo runs via the per-run factory. No repo create/delete/fork. 292 offline tests.
+
+**Next: F1 — operations console** (standing order is M3 → F1). Do NOT start it without explicit
+go-ahead. F1 needs a **frontend stack choice (Blazor vs React)** — a human checkpoint; present a
+recommendation first. It's ~90% a read model over `runs`/`run_events` plus the gate approve/reject
+screen (the mechanics exist since M1). Open residuals that F1 or M4 should weigh, tracked in
+`REVIEW.md`/`docs/threat-model.md`: no API auth + caller-supplied initiator (F1/threat-model), runner
+egress (F11, closes with the container runner), least-privilege DB role (F4).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **M3 — multi-repo & search:** per-run `GitHubToolset` factory from `run.Repo` + repo allowlist
-  in config (policy control), read-only `github.search_code`/`github.search_repos`. No repo creation.
-- **F1 — operations console** (after M2, ok parallel with M3): run list, event/audit viewer,
-  gate approve/reject UI.
+- **F1 — operations console** (product-vision §5): run list + live status, run/node timeline from
+  `run_events`, audit-chain viewer with verify, **gate approval screen**, token/cost per run.
 - **M4+ and beyond:** graduation (OpenShift/Vault/SIEM/SSO) and the vision-doc horizons
   (M5 QA pack, M6 security pack, M7 team ownership + agent registry + MCP connectors, M9+ business packs).
 
