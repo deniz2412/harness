@@ -5,10 +5,12 @@ using Xunit;
 namespace Harness.Eval;
 
 /// <summary>
-/// The write-path workflows this workstream ships must satisfy the real loader's fail-closed
-/// validation (prompt_refs resolve, gate values are auto|human, depends_on targets exist) and, on
-/// top of that, must honour the M2 invariant: a HUMAN gate sits before the node that pushes/opens a
-/// PR. Caught here, offline, not on a run. Uses the production <see cref="WorkflowLoader"/>.
+/// Every shipped workflow must satisfy the real loader's fail-closed validation (prompt_refs
+/// resolve, gate values are auto|human, depends_on targets exist) and — beyond what the loader
+/// checks — must name only known node kinds and catalogued tools, and never reference a merge
+/// capability. The gated-write workflows additionally must place a HUMAN gate before the node that
+/// pushes/opens a PR (the M2 invariant). Caught here, offline, not on a run, using the production
+/// <see cref="WorkflowLoader"/> and the real <see cref="ToolCatalog"/>.
 /// </summary>
 public class ShippedWriteWorkflowTests
 {
@@ -19,87 +21,41 @@ public class ShippedWriteWorkflowTests
         return dir?.FullName ?? throw new DirectoryNotFoundException("Harness.sln not found above the test binary.");
     }
 
-    private static WorkflowLoader Loader()
-    {
-        var root = RepoRoot();
-        return new WorkflowLoader(Path.Combine(root, "workflows"), Path.Combine(root, "prompts"));
-    }
+    private static WorkflowLoader Loader() =>
+        new(Path.Combine(RepoRoot(), "workflows"), Path.Combine(RepoRoot(), "prompts"));
 
-    [Theory]
-    [InlineData("test-generation")]
-    [InlineData("issue-to-pr")]
-    [InlineData("coverage-gap-analysis")]
-    [InlineData("regression-suite-author")]
-    public void Loads_and_is_pinned(string name)
-    {
-        var loader = Loader();
+    /// <summary>Every workflow shipped in workflows/ — discovered from disk so a new one is covered
+    /// by the universal checks automatically, not only when someone remembers to add it here.</summary>
+    public static IEnumerable<object[]> AllWorkflows() =>
+        Directory.EnumerateFiles(Path.Combine(RepoRoot(), "workflows"), "*.yaml")
+            .Select(f => new object[] { Path.GetFileNameWithoutExtension(f) });
 
-        var wf = loader.Load(name);
+    /// <summary>The gated-write workflows: they push a branch / open a PR and so MUST carry a human
+    /// gate before it. The analysis workflows (pr-review, dependency-audit, secrets-sweep) end at a
+    /// comment and are deliberately not here.</summary>
+    private static readonly string[] GatedWriteWorkflows =
+        ["test-generation", "issue-to-pr", "coverage-gap-analysis", "regression-suite-author", "threat-model-draft"];
 
-        Assert.Equal(64, wf.Sha.Length);                 // sha256, lowercase hex
-        Assert.Equal(wf.Sha, loader.Load(name).Sha);     // deterministic pin
-    }
-
-    [Theory]
-    [InlineData("test-generation")]
-    [InlineData("issue-to-pr")]
-    [InlineData("coverage-gap-analysis")]
-    [InlineData("regression-suite-author")]
-    public void Declares_a_write_ceiling_so_the_engine_provisions_a_sandbox(string name)
-    {
-        var wf = Loader().Load(name);
-
-        Assert.Equal("write-worktree", wf.Permissions["repo"]);
-        Assert.Equal("open_pr+issues", wf.Permissions["github"]);
-    }
-
-    [Theory]
-    [InlineData("test-generation")]
-    [InlineData("issue-to-pr")]
-    [InlineData("coverage-gap-analysis")]
-    [InlineData("regression-suite-author")]
-    public void A_human_gate_precedes_the_pr_open_node(string name)
-    {
-        var wf = Loader().Load(name);
-
-        var openPr = Assert.Single(wf.Nodes, n => n.Tools.Contains("github.open_pr"));
-
-        // The open-pr node depends on a gate node, and that gate is a hard human gate.
-        var gate = Assert.Single(wf.Nodes, n => n.Kind == "gate");
-        Assert.Equal("human", gate.Gate);
-        Assert.Contains("initiator", gate.Approvers);
-        Assert.Contains(gate.Id, openPr.DependsOn);
-    }
-
-    [Theory]
-    [InlineData("test-generation")]
-    [InlineData("issue-to-pr")]
-    [InlineData("coverage-gap-analysis")]
-    [InlineData("regression-suite-author")]
-    public void Never_references_a_merge_capability(string name)
-    {
-        var wf = Loader().Load(name);
-
-        var allTools = wf.Nodes.SelectMany(n => n.Tools).ToList();
-        Assert.DoesNotContain(allTools, t => t.Contains("merge", StringComparison.OrdinalIgnoreCase));
-        // open_pr is the terminal write; nothing may depend on the PR-opening node.
-        var openPr = Assert.Single(wf.Nodes, n => n.Tools.Contains("github.open_pr"));
-        Assert.DoesNotContain(wf.Nodes, n => n.DependsOn.Contains(openPr.Id));
-    }
-
-    // The loader validates ids/depends_on/prompt_ref/gate but NOT node kinds or tool names — those
-    // only fail-closed at runtime (executor dispatch / the ToolRegistry switch / the catalog). For a
-    // data-only milestone that is too late: catch an invented tool or an unknown kind here, offline.
     private static readonly string[] KnownKinds = ["agent", "agent-loop", "bash", "gate"];
 
+    // ---- universal checks: every shipped workflow ----
+
     [Theory]
-    [InlineData("pr-review")]
-    [InlineData("test-generation")]
-    [InlineData("issue-to-pr")]
-    [InlineData("coverage-gap-analysis")]
-    [InlineData("regression-suite-author")]
+    [MemberData(nameof(AllWorkflows))]
+    public void Loads_and_is_pinned(string name)
+    {
+        var wf = Loader().Load(name);
+        Assert.Equal(64, wf.Sha.Length);                 // sha256, lowercase hex
+        Assert.Equal(wf.Sha, Loader().Load(name).Sha);   // deterministic pin
+    }
+
+    [Theory]
+    [MemberData(nameof(AllWorkflows))]
     public void Every_node_kind_is_known_and_every_tool_is_in_the_curated_catalog(string name)
     {
+        // The loader validates ids/depends_on/prompt_ref/gate but NOT node kinds or tool names —
+        // those only fail-closed at runtime (executor dispatch / the ToolRegistry switch / the
+        // catalog). For data workflows that is too late: catch an invented tool or kind here.
         var wf = Loader().Load(name);
         var catalog = ToolCatalog.Default;
 
@@ -112,9 +68,53 @@ public class ShippedWriteWorkflowTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(AllWorkflows))]
+    public void Never_references_a_merge_capability(string name)
+    {
+        // Invariant 1, checked for EVERY workflow: no tool name mentions merge (there is no merge
+        // tool and never will be), and nothing depends on a PR-opening node (open_pr is terminal).
+        var wf = Loader().Load(name);
+
+        var allTools = wf.Nodes.SelectMany(n => n.Tools).ToList();
+        Assert.DoesNotContain(allTools, t => t.Contains("merge", StringComparison.OrdinalIgnoreCase));
+
+        var openPr = wf.Nodes.SingleOrDefault(n => n.Tools.Contains("github.open_pr"));
+        if (openPr is not null)
+            Assert.DoesNotContain(wf.Nodes, n => n.DependsOn.Contains(openPr.Id));
+    }
+
+    // ---- gated-write workflows only ----
+
+    [Theory]
+    [MemberData(nameof(GatedWrite))]
+    public void Declares_a_write_ceiling_so_the_engine_provisions_a_sandbox(string name)
+    {
+        var wf = Loader().Load(name);
+        Assert.Equal("write-worktree", wf.Permissions["repo"]);
+        Assert.Equal("open_pr+issues", wf.Permissions["github"]);
+    }
+
+    [Theory]
+    [MemberData(nameof(GatedWrite))]
+    public void A_human_gate_precedes_the_pr_open_node(string name)
+    {
+        var wf = Loader().Load(name);
+
+        var openPr = Assert.Single(wf.Nodes, n => n.Tools.Contains("github.open_pr"));
+        var gate = Assert.Single(wf.Nodes, n => n.Kind == "gate");
+        Assert.Equal("human", gate.Gate);
+        Assert.Contains("initiator", gate.Approvers);
+        Assert.Contains(gate.Id, openPr.DependsOn);   // the PR-open node is downstream of the gate
+    }
+
+    public static IEnumerable<object[]> GatedWrite() => GatedWriteWorkflows.Select(n => new object[] { n });
+
     [Fact]
     public void Agent_loop_nodes_validate_with_dotnet_test_and_are_bounded()
     {
+        // The QA/test-authoring workflows use a bounded agent-loop validated by `dotnet test`.
+        // (threat-model-draft is a gated write but has no loop — it is deliberately excluded.)
         foreach (var name in new[]
                  { "test-generation", "issue-to-pr", "coverage-gap-analysis", "regression-suite-author" })
         {

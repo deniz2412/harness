@@ -1,0 +1,49 @@
+name: dependency-audit
+description: >-
+  Defensive, repo-scoped dependency vulnerability audit of the run's OWN code. A deterministic
+  scanner (dotnet list package --vulnerable --include-transitive, run in the runner sandbox after a
+  restore) produces the findings; an agent triages them — package, resolved version, severity,
+  advisory URL, and a concrete remediation, grouped worst-first — and posts ONE PR comment. The only
+  externally visible write is that comment (auto-gated by the policy scan, like pr-review). This
+  workflow does not push a branch, open a PR, or merge, and it attacks nothing.
+# Write intent: the repo: write-worktree ceiling is what makes the engine spin up a runner sandbox
+# for the run (git + dotnet available). Without it there is no worktree for `dotnet restore` and
+# `dotnet list package --vulnerable` to run in. The github: comment ceiling permits exactly one
+# external write — the review comment — and nothing above it (no push, no open_pr, no merge).
+permissions:
+  repo: write-worktree
+  github: comment
+nodes:
+  # 1. Restore the solution so the scanner can resolve the full (transitive) dependency graph.
+  #    The runner executes ONE command per bash node with no shell — no operators, no chaining.
+  - id: restore
+    kind: bash
+    run: dotnet restore
+
+  # 2. Deterministic scan. Emits the vulnerable-package table (top-level/transitive package,
+  #    resolved version, severity, GHSA advisory URL) on stdout, or "has no vulnerable packages"
+  #    when clean. Fail-closed: if this command cannot run the node fails — nothing is reported as
+  #    clean on error. Its stdout is handed to the report node as upstream context.
+  - id: audit
+    kind: bash
+    depends_on: [restore]
+    run: dotnet list package --vulnerable --include-transitive
+
+  # 3. Read-only PR context (nice-to-have): note which dependency declarations the PR touches so the
+  #    report can foreground findings on packages this change is responsible for. Independent of the
+  #    scan; runs in parallel with restore/audit.
+  - id: gather
+    kind: agent
+    prompt_ref: dependency-audit/gather.md
+    tools: [github.pr_diff, repo.read, repo.list, codesearch.query]
+
+  # 4. Triage the scanner output (received as upstream context from `audit`) and post ONE PR comment.
+  #    Reports only what the scanner actually found — never invents CVEs, versions, or severities.
+  #    gate: auto — low-risk external write (a comment), auto-gated via the policy scan, exactly like
+  #    pr-review/post. No human gate, no push, no PR.
+  - id: report
+    kind: agent
+    depends_on: [audit, gather]
+    gate: auto
+    prompt_ref: dependency-audit/report.md
+    tools: [repo.read, repo.list, codesearch.query, github.pr_comment]

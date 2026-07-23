@@ -1,0 +1,48 @@
+name: threat-model-draft
+description: >-
+  Study the run's own codebase and draft a STRIDE-style threat model — assets, trust boundaries, a
+  STRIDE table per boundary, and ranked findings with recommendations — written as a markdown doc
+  into the worktree, then opened as a human-gated PR. There is no deterministic scanner here: the
+  agent reads the code and reasons about it. The draft is clearly marked AI-generated for human
+  review. The only externally visible writes are a pushed branch and an opened PR, both behind a
+  human gate. Ends at the PR; never merges.
+# Write intent: this ceiling is what makes the engine spin up a runner sandbox for the run (a
+# worktree to write the draft doc into and push from). Without it there is no worktree for the
+# draft/write and push steps to act in.
+permissions:
+  repo: write-worktree
+  github: open_pr+issues
+nodes:
+  # 1. Study the code and structure: identify assets, entry points, and trust boundaries. Read-only
+  #    tools. If a PR is in scope its diff sharpens focus, but the model covers the whole codebase.
+  - id: study
+    kind: agent
+    prompt_ref: threat-model-draft/study.md
+    tools: [github.pr_diff, repo.read, repo.list, codesearch.query]
+
+  # 2. Draft the STRIDE threat model as a markdown doc in the worktree (docs/THREAT-MODEL-draft.md)
+  #    via repo.write_worktree — assets, trust boundaries, a STRIDE table per boundary, ranked
+  #    findings with recommendations. The doc is clearly marked an AI-generated DRAFT for human
+  #    review. It is SOURCE (it belongs in the PR) — do not gitignore it, unlike build artefacts.
+  - id: draft
+    kind: agent
+    depends_on: [study]
+    prompt_ref: threat-model-draft/draft.md
+    tools: [repo.read, repo.write_worktree]
+
+  # 3. HARD human gate. Nothing externally visible has happened yet; the initiator approves here.
+  #    This gate MUST precede any push/PR — that is the fail-closed write contract.
+  - id: approve
+    kind: gate
+    depends_on: [draft]
+    gate: human
+    approvers: [initiator]
+
+  # 4. Push the branch and open ONE PR carrying the draft doc. The body says plainly that this is an
+  #    AI-drafted threat model for human review, not an approved artefact. The workflow ENDS here —
+  #    there is no merge step or merge tool.
+  - id: open-pr
+    kind: agent
+    depends_on: [approve]
+    prompt_ref: threat-model-draft/open-pr.md
+    tools: [github.push_branch, github.open_pr]
