@@ -1,4 +1,5 @@
 using Harness.Agents;
+using Harness.Api.Ops;
 using Harness.Audit;
 using Harness.Contracts;
 using Harness.Engine;
@@ -106,6 +107,26 @@ builder.Services.AddSingleton<INodeExecutor>(sp => new BashNodeExecutor(
 builder.Services.AddSingleton<INodeExecutor>(_ => new GateNodeExecutor());
 builder.Services.AddSingleton<DagExecutor>();
 
+// --- operations console (F1) ---
+// The read model + the two write actions the console and the HTTP endpoints share. The coordinator
+// holds the only copy of the fail-closed run logic (allowlist, workflow-sha), so the UI cannot take
+// a shortcut the API doesn't. IWorkflowRunner is the seam that keeps that logic testable off a live
+// gateway; in production it forwards to the real DAG executor.
+builder.Services.AddSingleton<IRunQueries>(sp => new RunQueries(
+    sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>(),
+    paths["AuditPayloads"]!, sp.GetRequiredService<AuditEmitter>()));
+builder.Services.AddSingleton<IWorkflowRunner>(sp => new DagWorkflowRunner(
+    sp.GetRequiredService<DagExecutor>()));
+builder.Services.AddSingleton<IRunCoordinator>(sp => new RunCoordinator(
+    sp.GetRequiredService<WorkflowLoader>(), sp.GetRequiredService<IWorkflowRunner>(),
+    sp.GetRequiredService<IRunStore>(), sp.GetRequiredService<AuditEmitter>(),
+    sp.GetRequiredService<PolicyPipeline>(), sp.GetRequiredService<RepoAllowlist>(),
+    sp.GetRequiredService<IApprovalStore>(), sp.GetRequiredService<ILoggerFactory>()));
+
+// Blazor Server: the console is served from this same process (one container, loopback-only), a
+// client of the services above — it renders the audit trail and performs only the gate decision.
+builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+
 var app = builder.Build();
 
 // Schema now comes from EF migrations rather than EnsureCreated, so the audit store has a real
@@ -117,88 +138,24 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
-// --- run execution ---
-// Still fire-and-forget (a real background queue is M2 work), so anything not logged inside the
-// task is lost. A failing audit emit must not mask the error that triggered it — that combination
-// once produced a run with no events, no logs and no explanation.
-static Task StartAsync(Run run, WorkflowDefinition wf, DagExecutor dag, IRunStore runs,
-    AuditEmitter audit, PolicyPipeline policy, ILogger log)
-{
-    _ = Task.Run(async () =>
-    {
-        async Task TryEmit(string type, string message)
-        {
-            try { await audit.EmitAsync(run.Id, type, "-", message, CancellationToken.None); }
-            catch (Exception ae) { log.LogCritical(ae, "Audit emit failed for run {RunId}", run.Id); }
-        }
-
-        async Task FinishAsync(RunStatus status)
-        {
-            run.Status = status;
-            run.FinishedAt = DateTimeOffset.UtcNow;
-            try { await runs.SaveAsync(run, CancellationToken.None); }
-            catch (Exception se) { log.LogCritical(se, "Could not persist final status for run {RunId}", run.Id); }
-        }
-
-        try { await dag.ExecuteAsync(run, wf, CancellationToken.None); }
-        catch (PolicyViolationException pex)
-        {
-            log.LogWarning(pex, "Run {RunId} policy-blocked", run.Id);
-            // pex.Message carries only a redaction token, never matched secret material.
-            await TryEmit("policy_block", pex.Message);
-            await FinishAsync(RunStatus.PolicyBlocked);
-        }
-        catch (Exception ex)
-        {
-            log.LogError(ex, "Run {RunId} failed", run.Id);
-            // An exception message can quote untrusted content it read, so it is scanned like any
-            // other payload before being written to the trail.
-            await TryEmit("node_end", $"error: {policy.Redact(ex.Message)}");
-            await FinishAsync(RunStatus.Failed);
-        }
-        // The success and pause paths persist their own status inside the executor, so there is no
-        // finally block here: it would race the executor and overwrite AwaitingApproval with a
-        // stale value.
-    });
-    return Task.CompletedTask;
-}
-
 // --- endpoints ---
-app.MapPost("/runs", async (RunRequest req, WorkflowLoader loader, DagExecutor dag,
-    IRunStore runs, AuditEmitter audit, PolicyPipeline policy, RepoAllowlist allowlist,
-    ILoggerFactory logs, CancellationToken ct) =>
+// The HTTP API and the ops console both go through IRunCoordinator, so the fail-closed rules
+// (repo allowlist, workflow-sha) are enforced on one path. The endpoint just translates the
+// coordinator's outcome to an HTTP result.
+app.MapPost("/runs", async (RunRequest req, IRunCoordinator coordinator, CancellationToken ct) =>
 {
-    var log = logs.CreateLogger("Harness.Run");
-
-    // Fail-closed, before anything is created or any tool runs: a run may only target a repo the
-    // operator has allowlisted (M3's policy control). A non-allowlisted or malformed repo is a bad
-    // request, not a server fault, and never reaches the tools.
-    if (!allowlist.IsAllowed(req.Repo))
-        return Results.BadRequest(new
-        {
-            error = $"Repository '{req.Repo}' is not allowlisted. Add it to RepoAllowlist to run against it."
-        });
-
-    WorkflowDefinition wf;
-    try { wf = loader.Load(req.Workflow); }
-    catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException)
+    var outcome = await coordinator.StartAsync(
+        req.Workflow, req.Repo, req.Pr, req.Issue, req.Initiator, ct);
+    return outcome.Status switch
     {
-        // A workflow that fails validation is a bad request, not a server fault.
-        return Results.BadRequest(new { error = ex.Message });
-    }
-
-    var run = new Run
-    {
-        Workflow = req.Workflow,
-        WorkflowSha = wf.Sha,          // the definition + prompts this run actually executed
-        Initiator = req.Initiator ?? "local",
-        Repo = req.Repo, PullRequest = req.Pr, Issue = req.Issue
+        StartStatus.Started => Results.Accepted(
+            $"/runs/{outcome.Run!.Id}", new { outcome.Run.Id, outcome.Run.Status }),
+        _ => Results.BadRequest(new { error = outcome.Error }),   // RepoNotAllowlisted | BadWorkflow
     };
-    await runs.SaveAsync(run, ct);
-
-    await StartAsync(run, wf, dag, runs, audit, policy, log);
-    return Results.Accepted($"/runs/{run.Id}", new { run.Id, run.Status });
 });
+
+app.MapGet("/runs", async (IRunQueries queries, int? limit, CancellationToken ct) =>
+    Results.Ok(await queries.ListRunsAsync(Math.Clamp(limit ?? 50, 1, 500), ct)));
 
 app.MapGet("/runs/{id:guid}", async (Guid id, IRunStore runs, CancellationToken ct) =>
 {
@@ -233,53 +190,36 @@ app.MapGet("/runs/{id:guid}/gates", async (Guid id, IDbContextFactory<HarnessDbC
 });
 
 app.MapPost("/runs/{id:guid}/gates/{node}/decide", async (
-    Guid id, string node, GateDecisionRequest body, IApprovalStore approvals, IRunStore runs,
-    WorkflowLoader loader, DagExecutor dag, AuditEmitter audit, PolicyPipeline policy,
-    RepoAllowlist allowlist, ILoggerFactory logs, CancellationToken ct) =>
+    Guid id, string node, GateDecisionRequest body, IRunCoordinator coordinator, CancellationToken ct) =>
 {
-    var log = logs.CreateLogger("Harness.Run");
-    var run = await runs.GetAsync(id, ct);
-    if (run is null) return Results.NotFound();
-    if (run.Status != RunStatus.AwaitingApproval)
-        return Results.Conflict(new { error = $"Run is {run.Status}, not awaiting approval." });
-
-    // Resuming re-runs the DAG (an approval reaches the write tools), so re-check the allowlist: if
-    // the repo was removed from config and the service restarted while this run was paused, it must
-    // not resume against a now-forbidden repo. Fail-closed on the current policy, not the old one.
-    if (!allowlist.IsAllowed(run.Repo))
-        return Results.Conflict(new
+    var outcome = await coordinator.DecideAsync(
+        id, node, body.Approve, body.Approver ?? "", body.Reason, ct);
+    return outcome switch
+    {
+        GateOutcome.Accepted => Results.Accepted($"/runs/{id}",
+            new { id, decision = body.Approve ? "Approved" : "Rejected" }),
+        GateOutcome.RunNotFound => Results.NotFound(),
+        GateOutcome.GateNotFound => Results.NotFound(new { error = $"No gate requested for node '{node}'." }),
+        GateOutcome.NotAwaitingApproval => Results.Conflict(new { error = "Run is not awaiting approval." }),
+        GateOutcome.AlreadyDecided => Results.Conflict(new { error = "This gate has already been decided." }),
+        GateOutcome.RepoNoLongerAllowlisted => Results.Conflict(new
         {
-            error = $"Repository '{run.Repo}' is no longer allowlisted; this run cannot resume."
-        });
-
-    var decision = body.Approve ? GateDecision.Approved : GateDecision.Rejected;
-    // The approver is whatever the caller claims until there is authentication — recorded as a
-    // claim, not as an identity (threat model F1).
-    var approver = string.IsNullOrWhiteSpace(body.Approver) ? run.Initiator : body.Approver;
-
-    // Resuming re-executes the DAG, so both decisions run against a freshly loaded definition — and
-    // both must be the definition the human acted on. If the workflow or a prompt changed while the
-    // run was paused, the decision was made about something else: an approval could execute inserted
-    // pre-gate nodes, and a rejection could run a DAG whose gate has moved or gone. Check before
-    // recording the decision, so a stale run is refused, not half-run.
-    var wf = loader.Load(run.Workflow);
-    if (!string.Equals(wf.Sha, run.WorkflowSha, StringComparison.Ordinal))
-        return Results.Conflict(new
+            error = "The run's repository is no longer allowlisted; this run cannot resume."
+        }),
+        GateOutcome.DefinitionChanged => Results.Conflict(new
         {
             error = "The workflow definition changed while this run was paused; "
                   + "the decision does not carry over. Start a new run.",
-            decidedSha = run.WorkflowSha, currentSha = wf.Sha
-        });
-
-    try { await approvals.DecideAsync(id, node, decision, approver, body.Reason, ct); }
-    catch (GateNotFoundException) { return Results.NotFound(new { error = $"No gate requested for node '{node}'." }); }
-    catch (GateAlreadyDecidedException e) { return Results.Conflict(new { error = e.Message }); }
-
-    // Either way the executor resumes: an approval proceeds past the gate, a rejection is recorded
-    // and the run closed out — both through the executor's own audited path.
-    await StartAsync(run, wf, dag, runs, audit, policy, log);
-    return Results.Accepted($"/runs/{run.Id}", new { run.Id, decision = decision.ToString() });
+        }),
+        _ => Results.Problem("Unhandled gate outcome."),
+    };
 });
+
+// The operations console (Blazor Server) is served from the root of this same process — a client of
+// the services above, loopback-only like the rest of the API. UseAntiforgery guards its interactive
+// form posts (gate decisions, launch); the JSON API endpoints above take no form input.
+app.UseAntiforgery();
+app.MapRazorComponents<Harness.Api.Components.App>().AddInteractiveServerRenderMode();
 
 app.Run();
 
