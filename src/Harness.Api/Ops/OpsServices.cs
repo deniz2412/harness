@@ -1,3 +1,4 @@
+using Harness.Audit;
 using Harness.Contracts;
 
 namespace Harness.Api.Ops;
@@ -20,6 +21,10 @@ public interface IRunQueries
     /// <summary>The full payload text of one event (read from the audit volume) for the event/audit
     /// viewer. Null if the run/seq is unknown or the payload file is missing.</summary>
     Task<string?> GetEventPayloadAsync(Guid runId, long seq, CancellationToken ct = default);
+
+    /// <summary>Recomputes the run's hash chain for the audit-chain viewer's Verify button — the
+    /// same tamper check the CLI and <c>GET /verify</c> run, surfaced in the console.</summary>
+    Task<ChainVerificationResult> VerifyAsync(Guid runId, CancellationToken ct = default);
 }
 
 /// <summary>One row of the run list.</summary>
