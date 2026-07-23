@@ -45,8 +45,8 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅, M3 ✅ — done and verified.** Exit checks in `docs/m0-exit-check.md`,
-`docs/m1-exit-check.md`, `docs/m2-exit-check.md`, `docs/m3-exit-check.md`; review gates in `REVIEW.md`.
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅ — done and verified.** Exit checks in `docs/m0-exit-check.md` …
+`docs/m3-exit-check.md`, `docs/f1-exit-check.md`; review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -64,18 +64,30 @@ Docs (in-repo, canonical for this codebase):
   confined to the allowlist. **Demonstrated live:** a non-allowlisted/malformed repo is refused; the
   allowlisted repo runs via the per-run factory. No repo create/delete/fork. 292 offline tests.
 
-**Next: F1 — operations console** (standing order is M3 → F1). Do NOT start it without explicit
-go-ahead. F1 needs a **frontend stack choice (Blazor vs React)** — a human checkpoint; present a
-recommendation first. It's ~90% a read model over `runs`/`run_events` plus the gate approve/reject
-screen (the mechanics exist since M1). Open residuals that F1 or M4 should weigh, tracked in
-`REVIEW.md`/`docs/threat-model.md`: no API auth + caller-supplied initiator (F1/threat-model), runner
-egress (F11, closes with the container runner), least-privilege DB role (F4).
+- **F1** shipped a **Blazor Server operations console** hosted in `Harness.Api` (one container,
+  loopback-only): run list with live status, run detail with the node/event timeline + per-event
+  payload viewer, audit-chain viewer with Verify, the gate approval screen (review node outputs →
+  approve/reject), token/cost per run. A strict client of `IRunQueries` (reads) + `IRunCoordinator`
+  (the one write, a gate decision); the run-start/gate logic was extracted from `Program.cs` so the
+  API and UI share one fail-closed path. Demonstrated live (screenshots). 312 offline tests.
+
+**Next: M4 — decide & (maybe) graduate** is the standing order after F1, but M4 is a
+graduation/decision milestone (OpenShift, Vault, SIEM, SSO) that needs real infra, accounts and
+spend — a hard human checkpoint, and likely out of scope for this local PoC. The natural
+continuation here is the **product-vision §6 packs (M5 QA, M6 security, …)**, which are workflow
+packs (YAML + analyzer images) in the PoC's spirit. Do NOT start either without explicit go-ahead —
+present the M4-vs-M5 fork to the human.
+
+Open residuals later milestones should weigh (tracked in `REVIEW.md`/`docs/threat-model.md`): no API
+auth + caller-supplied initiator (F1), runner egress (F11, closes with the container runner),
+least-privilege DB role (F4), and token/cost never populated on audit events (A7/F8 — the console
+shows 0 until it is wired).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **F1 — operations console** (product-vision §5): run list + live status, run/node timeline from
-  `run_events`, audit-chain viewer with verify, **gate approval screen**, token/cost per run.
-- **M4+ and beyond:** graduation (OpenShift/Vault/SIEM/SSO) and the vision-doc horizons
-  (M5 QA pack, M6 security pack, M7 team ownership + agent registry + MCP connectors, M9+ business packs).
+- **M4 — decide & (maybe) graduate:** retire/keep Archon, or lift to real infra (OpenShift, Vault,
+  SIEM, SSO). Real-infra checkpoint.
+- **Vision horizons (product-vision §6):** M5 QA pack, M6 security pack, M7 team ownership + agent
+  registry (M7b) + MCP connectors (M7c), F2–F4 (catalog/authoring/dashboards), M9+ business packs.
 
 ## Conventions
 - .NET 8, nullable enabled, file-scoped namespaces, primary constructors where natural.

@@ -5,6 +5,42 @@ milestone; newest first.
 
 ---
 
+## F1 — Operations console (2026-07-23)
+
+Independent review gate audited the full F1 diff `3e30ddb..HEAD`. Verdict: **shippable as-is, no
+MAJORs.** All seven invariants hold; the F1 "UI is a strict client of the API/audit trail"
+invariant holds strictly (the Blazor components inject only `IRunQueries`, `IRunCoordinator`,
+`NavigationManager` — no DbContext/HttpClient/Octokit/File/tool access anywhere); the XSS surface
+is clean (both payload sinks render as Razor-encoded `<pre>@text</pre>`, no `MarkupString`/raw HTML
+in the components, no external CSS resource); the fail-closed guard extraction from `Program.cs`
+into `RunCoordinator` is faithful and in the same order (allowlist → AwaitingApproval → allowlist
+re-check → workflow-sha → decision-recorded-before-resume → the byte-faithful background error
+handling with no status-overwriting finally), and the HTTP API and the UI now share that one
+enforcement path. Exit met: run list + 3s live refresh, run detail with the node/event timeline and
+per-event payload viewer, audit-chain viewer whose Verify calls the same `AuditEmitter.VerifyAsync`
+as the CLI, the gate approval screen (surfacing node outputs for review before Approve/Reject), and
+token/cost totals. 20 offline tests, honest (the records-before-resume ordering is a real
+happens-before assertion). No scope creep into F2+.
+
+### MINORS — carried as tracked residuals
+
+- **F1-min-1 — the gate-decide endpoint dropped the `decidedSha`/`currentSha` diagnostic fields** the
+  original `DefinitionChanged` response carried (the coordinator returns a bare enum). Harmless; the
+  fields were a useful operator hint. Restoring them means widening the coordinator's return, not
+  worth it now — noted.
+- **F1-min-2 — the Launch page is a second UI write** (start a run) beyond product-vision §5's literal
+  "writes only the gate decision." It goes through the same guarded `IRunCoordinator.StartAsync` as
+  `POST /runs` (a form equivalent of the documented curl) and was sanctioned in the F1 brief — within
+  the invariant, but the vision wording and the shipped surface should be reconciled in the doc.
+- **F1-min-3 — the gate-review panel surfaces every completed `node_end` before the gate seq** rather
+  than the gate's actual DAG dependencies (the UI has no workflow graph via the seam). Documented
+  in-code; acceptable, but a large workflow shows more review material than strictly gate-relevant.
+- **Token/cost shows 0** because the emitters never populate `TokensIn/Out/CostUsd` — the pre-existing
+  A7/F8 residual, not an F1 defect; the console plumbing is correct and will display real numbers
+  once the emitters are wired.
+
+---
+
 ## M3 — Multi-repo & search (2026-07-23)
 
 Independent review gate audited the full M3 diff `6464ac5..HEAD`. Verdict: **all 7 invariants hold,

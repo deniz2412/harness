@@ -3,12 +3,13 @@
 **Bank-owned AI coding harness on Microsoft Agent Framework (.NET), running on Docker Desktop**
 **Companion to:** AI-Harness-Analysis-and-Plan.md, Internal-Harness-Build-Analysis.md,
 Harness-Product-Vision-Roadmap.md (long-term horizons beyond M4)
-**Date:** 23 Jul 2026 · **Status:** v2.5 — local MVP scope; **M0 ✅, M1 ✅, M2 ✅, M3 ✅ complete and
-verified** (exit checks in `docs/m0-exit-check.md` … `docs/m3-exit-check.md`; reviews in `REVIEW.md`).
-M2's write path was demonstrated live (human-gated PR test-repo-harness#2); M3 un-bound tooling to
-per-run repos behind a fail-closed allowlist. Next: F1 (operations console), not started — needs a
-Blazor-vs-React decision at the checkpoint. Copies of this doc live in the repo at `harness/docs/` —
-keep both in sync.
+**Date:** 23 Jul 2026 · **Status:** v2.6 — local MVP scope; **M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅
+complete and verified** (exit checks in `docs/m0-exit-check.md` … `docs/f1-exit-check.md`; reviews in
+`REVIEW.md`). M2's write path was demonstrated live (human-gated PR test-repo-harness#2); M3
+un-bound tooling to per-run repos behind a fail-closed allowlist; F1 shipped a Blazor Server
+operations console (run list, run/audit detail, gate approvals). Next: M4 (graduation) is the
+standing order, but it needs real infra — the practical fork is M4 vs the product-vision §6 packs
+(M5+), a human decision. Copies of this doc live in the repo at `harness/docs/` — keep both in sync.
 
 ---
 
@@ -301,11 +302,19 @@ lifecycle stays human. Token graduates from single-repo PAT to a GitHub App with
 selected-repository installation when more repos join.
 *Exit: any workflow runs against any allowlisted repo; agents can search but never create repos.*
 
+**F1 — Operations console. ✅ Complete (23 Jul 2026), pulled forward of M4.**
+The "thin operations page" this M4 note anticipated shipped early (product-vision §5 approved the
+pull-forward once M2's gates existed): a Blazor Server console hosted in `Harness.Api` — run list +
+live status, run detail with the node/event timeline and payload viewer, audit-chain viewer with
+verify, the gate approval screen, token/cost per run. A strict client of `IRunQueries`/
+`IRunCoordinator`; the run-start/gate logic was extracted so the API and UI share one fail-closed
+path. See `docs/f1-exit-check.md`.
+
 **M4 — Decide & (maybe) graduate (later).**
 With bake-off evidence: retire Archon and grow the platform, keep both, or lift to real infra —
 OpenShift manifests, Vault, SIEM, SSO all slot into seams already present (this is v1 §4 of this
-spec, deferred, not deleted). If a UI is wanted by then, it enters here as a **thin operations
-page** — run list, event/audit-chain viewer, gate approve/reject buttons — nothing more.
+spec, deferred, not deleted). The operations UI already landed as F1 above, so M4 is now purely the
+graduation/decision milestone — real infra, accounts and spend, a hard human checkpoint.
 *Exit: evidence-based decision on scaling and hosting.*
 
 Solo-capacity guardrails, unchanged: no web UI before M4 (CLI + PR comments are the UI); no visual builder;
