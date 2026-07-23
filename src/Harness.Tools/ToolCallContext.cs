@@ -1,4 +1,5 @@
 using System.Runtime.ExceptionServices;
+using Harness.Contracts;
 
 namespace Harness.Tools;
 
@@ -18,7 +19,8 @@ public sealed class ToolCallContext(
     Guid runId,
     string nodeId,
     IReadOnlyCollection<string> nodeTools,
-    IReadOnlyDictionary<string, string> workflowPermissions)
+    IReadOnlyDictionary<string, string> workflowPermissions,
+    IRunnerSession? runner = null)
 {
     /// <summary>Run the call belongs to; every tool event is attributed to it.</summary>
     public Guid RunId { get; } = runId;
@@ -31,6 +33,13 @@ public sealed class ToolCallContext(
 
     /// <summary>The workflow's `permissions:` ceiling — the outer bound on every node.</summary>
     public IReadOnlyDictionary<string, string> WorkflowPermissions { get; } = workflowPermissions;
+
+    /// <summary>
+    /// The run's sandbox, present only for write-capable nodes. Write tools (repo.write_worktree,
+    /// github.push_branch) act through it; a read-only workflow leaves it null. A write tool that
+    /// finds it null must fail closed — a write with nowhere isolated to happen does not happen.
+    /// </summary>
+    public IRunnerSession? Runner { get; } = runner;
 
     /// <summary>First platform failure seen during this node, if any. Null means clean.</summary>
     public Exception? Latched { get; private set; }
