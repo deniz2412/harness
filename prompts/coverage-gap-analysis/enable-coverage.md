@@ -12,9 +12,18 @@ Steps:
 
        <PackageReference Include="coverlet.collector" Version="6.0.2" />
 
+3. Keep the coverage RUN OUTPUT out of the pull request. The next step writes coverage reports into
+   a `coverage/` directory; those are build artefacts, not source, and must never be committed. Read
+   `.gitignore` at the repo root (repo_read_file; if it does not exist, treat it as empty) and,
+   unless already ignored, write it back (repo_write_worktree) with these lines appended:
+
+       coverage/
+       **/TestResults/
+
 Rules:
-- This is the ONLY change you make. Do not touch production code, other projects, test files, or
-  any other package version. Preserve the rest of the `.csproj` byte-for-byte around your addition.
+- The ONLY changes you make are the collector reference and the `.gitignore` lines above. Do not
+  touch production code, other projects, test files, or any other package version. Preserve the rest
+  of each file byte-for-byte around your additions.
 - Pin exactly `6.0.2`. Do not use a floating version or a different collector.
 - Do not run tests or measure coverage; that is the next step's job.
 
