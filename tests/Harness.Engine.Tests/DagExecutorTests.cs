@@ -21,16 +21,32 @@ public class DagExecutorTests
 
     private sealed record Fixture(
         DagExecutor Exec, FakeAuditLog Audit, FakeApprovalStore Approvals,
-        FakeRunStore Store, FakeNodeExecutor Nodes);
+        FakeRunStore Store, FakeNodeExecutor Nodes, FakeRunnerFactory Runners);
 
-    private static Fixture Harness(Func<NodeContext, NodeResult>? behaviour = null)
+    private static Fixture Harness(
+        Func<NodeContext, NodeResult>? behaviour = null,
+        Func<FakeAuditLog, IEnumerable<INodeExecutor>>? extra = null,
+        FakeRunnerFactory? runnerFactory = null)
     {
         var audit = new FakeAuditLog();
         var approvals = new FakeApprovalStore();
         var store = new FakeRunStore();
         var nodes = new FakeNodeExecutor("agent", behaviour);
-        return new Fixture(new DagExecutor([nodes], audit, approvals, store), audit, approvals, store, nodes);
+        var runners = runnerFactory ?? new FakeRunnerFactory();
+        var executors = new List<INodeExecutor> { nodes };
+        if (extra is not null) executors.AddRange(extra(audit));
+        return new Fixture(
+            new DagExecutor(executors, audit, approvals, store, runners),
+            audit, approvals, store, nodes, runners);
     }
+
+    /// <summary>A write-capable workflow: its ceiling declares repo: write-worktree, which is the
+    /// signal the executor uses to create a runner sandbox for the run.</summary>
+    private static WorkflowDefinition WriteWf(params NodeDefinition[] nodes) =>
+        new() { Name = "w", Permissions = new() { ["repo"] = "write-worktree" }, Nodes = [.. nodes] };
+
+    private static NodeDefinition Bash(string id, string? run, params string[] deps) =>
+        new() { Id = id, Kind = "bash", Run = run, DependsOn = [.. deps] };
 
     [Fact]
     public void TopologicalOrder_respects_dependencies()
@@ -188,6 +204,137 @@ public class DagExecutorTests
         Assert.Equal("failed: boom", f.Audit.PayloadOf("node_end", "gather"));
         Assert.Equal([RunStatus.Running, RunStatus.Failed], f.Store.Transitions);
     }
+
+    // --- runner session lifecycle -------------------------------------------------------------
+
+    [Fact]
+    public async Task Read_only_workflow_never_creates_a_runner_session()
+    {
+        var f = Harness();
+
+        // pr-review-shaped: no repo: write-worktree in the ceiling.
+        await f.Exec.ExecuteAsync(NewRun(), Wf(N("gather"), N("review", "gather")), CancellationToken.None);
+
+        Assert.Empty(f.Runners.Created);                       // the factory was never called
+        Assert.Null(f.Nodes.RunnerSeen["gather"]);             // nodes saw a null sandbox
+        Assert.Null(f.Nodes.RunnerSeen["review"]);
+    }
+
+    [Fact]
+    public async Task Write_capable_workflow_creates_one_session_at_HEAD_and_disposes_it()
+    {
+        var f = Harness();
+
+        await f.Exec.ExecuteAsync(NewRun(), WriteWf(N("plan")), CancellationToken.None);
+
+        var created = Assert.Single(f.Runners.Created);
+        Assert.Equal("HEAD", created.BaseRef);                 // sentinel: runner resolves default branch
+        Assert.NotNull(f.Nodes.RunnerSeen["plan"]);            // the node received the sandbox
+        Assert.True(Assert.Single(f.Runners.Sessions).Disposed);
+    }
+
+    [Fact]
+    public async Task Paused_write_run_disposes_its_session_and_resume_creates_a_fresh_one()
+    {
+        var f = Harness();
+        var wf = WriteWf(N("plan"), Gated("approve", "human", "plan"));
+        var run = NewRun();
+
+        await f.Exec.ExecuteAsync(run, wf, CancellationToken.None);
+        Assert.Equal(RunStatus.AwaitingApproval, run.Status);
+        Assert.True(f.Runners.Sessions[0].Disposed);           // torn down on the pause
+
+        await f.Approvals.DecideAsync(run.Id, "approve", GateDecision.Approved, "deniz", null);
+        await f.Exec.ExecuteAsync(run, wf, CancellationToken.None);
+
+        Assert.Equal(RunStatus.Completed, run.Status);
+        Assert.Equal(2, f.Runners.Created.Count);              // a fresh session on resume
+        Assert.True(f.Runners.Sessions[1].Disposed);
+    }
+
+    // --- bash node ----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Bash_node_succeeds_on_exit_zero_and_records_the_command_and_output()
+    {
+        var runners = new FakeRunnerFactory(cmd => new CommandResult(0, "42 passed", ""));
+        var f = Harness(extra: audit => [new BashNodeExecutor(audit)], runnerFactory: runners);
+
+        var run = NewRun();
+        await f.Exec.ExecuteAsync(run, WriteWf(Bash("validate", "dotnet test")), CancellationToken.None);
+
+        Assert.Equal(RunStatus.Completed, run.Status);
+        Assert.Equal("dotnet test", Assert.Single(runners.Sessions[0].Commands));
+        Assert.Contains("bash: dotnet test", f.Audit.PayloadOf("tool_call", "validate"));
+        Assert.Contains("42 passed", f.Audit.PayloadOf("tool_result", "validate"));
+    }
+
+    [Fact]
+    public async Task Bash_node_non_zero_exit_fails_the_run_and_surfaces_the_output()
+    {
+        var runners = new FakeRunnerFactory(cmd => new CommandResult(1, "", "1 failed"));
+        var f = Harness(extra: audit => [new BashNodeExecutor(audit)], runnerFactory: runners);
+
+        var run = NewRun();
+        await f.Exec.ExecuteAsync(run, WriteWf(Bash("validate", "dotnet test")), CancellationToken.None);
+
+        Assert.Equal(RunStatus.Failed, run.Status);
+        Assert.Contains("exit=1", f.Audit.PayloadOf("node_end", "validate"));   // failure reason is visible
+        Assert.Contains("1 failed", f.Audit.PayloadOf("node_end", "validate"));
+    }
+
+    [Fact]
+    public async Task Bash_node_without_a_runner_session_fails_closed()
+    {
+        // A bash node placed in a read-only workflow: the executor is registered but no sandbox is
+        // created, so the node has nowhere isolated to run and must fail rather than shell out.
+        var f = Harness(extra: audit => [new BashNodeExecutor(audit)]);
+
+        var run = NewRun();
+        await f.Exec.ExecuteAsync(run, Wf(Bash("validate", "dotnet test")), CancellationToken.None);
+
+        Assert.Equal(RunStatus.Failed, run.Status);
+        Assert.Empty(f.Runners.Created);
+        Assert.Contains("needs a runner session", f.Audit.PayloadOf("node_end", "validate"));
+    }
+
+    [Fact]
+    public async Task Bash_node_with_no_command_fails_closed()
+    {
+        var f = Harness(extra: audit => [new BashNodeExecutor(audit)]);
+
+        var run = NewRun();
+        await f.Exec.ExecuteAsync(run, WriteWf(Bash("validate", run: null)), CancellationToken.None);
+
+        Assert.Equal(RunStatus.Failed, run.Status);
+        Assert.Contains("no 'run' command", f.Audit.PayloadOf("node_end", "validate"));
+    }
+
+    // --- gate node ----------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Gate_node_pauses_undecided_then_passes_through_once_approved()
+    {
+        var f = Harness(extra: _ => [new GateNodeExecutor()]);
+        var wf = WriteWf(N("plan"), GateNode("approve", "plan"));
+        var run = NewRun();
+
+        // Undecided: the DagExecutor mechanic pauses before the gate node ever executes.
+        await f.Exec.ExecuteAsync(run, wf, CancellationToken.None);
+        Assert.Equal(RunStatus.AwaitingApproval, run.Status);
+        Assert.Contains("gate_request", f.Audit.TypesFor("approve"));
+        Assert.DoesNotContain("node_start", f.Audit.TypesFor("approve"));
+
+        // Approved out of band: on resume the gate node runs as a clean pass-through.
+        await f.Approvals.DecideAsync(run.Id, "approve", GateDecision.Approved, "deniz", null);
+        await f.Exec.ExecuteAsync(run, wf, CancellationToken.None);
+
+        Assert.Equal(RunStatus.Completed, run.Status);
+        Assert.Equal("gate cleared", f.Audit.PayloadOf("node_end", "approve"));
+    }
+
+    private static NodeDefinition GateNode(string id, params string[] deps) =>
+        new() { Id = id, Kind = "gate", Gate = "human", DependsOn = [.. deps] };
 
     [Fact]
     public async Task Unknown_node_kind_throws_rather_than_being_skipped()

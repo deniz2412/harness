@@ -14,7 +14,8 @@ public sealed class DagExecutor(
     IEnumerable<INodeExecutor> executors,
     IAuditLog audit,
     IApprovalStore approvals,
-    IRunStore runs)
+    IRunStore runs,
+    IRunnerFactory runners)
 {
     private readonly Dictionary<string, INodeExecutor> _byKind =
         executors.ToDictionary(e => e.Kind, StringComparer.OrdinalIgnoreCase);
@@ -50,6 +51,26 @@ public sealed class DagExecutor(
     {
         if (run.Status is RunStatus.Completed or RunStatus.Rejected) return;
 
+        // A write-capable workflow (permission ceiling declares repo: write-worktree) gets a per-run
+        // sandbox; a read-only one (pr-review) never calls the factory, so its behaviour is
+        // unchanged and Runner stays null. baseRef "HEAD" is the sentinel for "the runner resolves
+        // the repo's default branch" — the engine does not hardcode "main".
+        // The session is disposed on every exit below, including a gate pause: a paused run's
+        // worktree is torn down and a fresh one is created on resume (a durable worktree across a
+        // pause is out of scope for M2).
+        IRunnerSession? session = IsWriteCapable(wf)
+            ? await runners.CreateAsync(run, "HEAD", ct)
+            : null;
+
+        await using (session)
+        {
+            await RunNodesAsync(run, wf, session, ct);
+        }
+    }
+
+    private async Task RunNodesAsync(Run run, WorkflowDefinition wf, IRunnerSession? session,
+        CancellationToken ct)
+    {
         var outputs = new Dictionary<string, string>(StringComparer.Ordinal);
 
         // Resume is only offered from a gate pause. A failed or policy-blocked run is not silently
@@ -97,7 +118,7 @@ public sealed class DagExecutor(
             if (!_byKind.TryGetValue(node.Kind, out var executor))
                 throw new InvalidOperationException($"No executor registered for kind '{node.Kind}'.");
 
-            var result = await executor.ExecuteAsync(new NodeContext(run, wf, node, outputs), ct);
+            var result = await executor.ExecuteAsync(new NodeContext(run, wf, node, outputs, session), ct);
 
             // The payload is the node's actual output, not a literal "ok": it is both the record a
             // reviewer reads and the source the resume path rebuilds upstream outputs from.
@@ -120,6 +141,15 @@ public sealed class DagExecutor(
 
     private static bool IsHumanGate(NodeDefinition node) =>
         string.Equals(node.Gate, "human", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A workflow is write-capable — and so needs a runner sandbox — when its permission ceiling
+    /// declares <c>repo: write-worktree</c>. That declared intent, not the presence of a bash or
+    /// agent-loop node, is the signal: it is the same ceiling the tool layer polices writes against.
+    /// </summary>
+    private static bool IsWriteCapable(WorkflowDefinition wf) =>
+        wf.Permissions.TryGetValue("repo", out var repo)
+        && string.Equals(repo, "write-worktree", StringComparison.OrdinalIgnoreCase);
 
     private static string Reason(GateApproval a) =>
         string.IsNullOrWhiteSpace(a.Reason) ? "" : $": {a.Reason}";

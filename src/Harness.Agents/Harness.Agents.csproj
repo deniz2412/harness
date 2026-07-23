@@ -5,4 +5,7 @@
     <ProjectReference Include="../Harness.Engine/Harness.Engine.csproj" />
     <ProjectReference Include="../Harness.Tools/Harness.Tools.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Harness.Agents.Tests" />
+  </ItemGroup>
 </Project>

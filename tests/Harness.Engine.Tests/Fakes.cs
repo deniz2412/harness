@@ -98,10 +98,66 @@ internal sealed class FakeNodeExecutor(string kind = "agent", Func<NodeContext, 
     public List<string> Executed { get; } = [];
     public Dictionary<string, IReadOnlyDictionary<string, string>> UpstreamSeen { get; } = [];
 
+    /// <summary>The runner session each node saw — null for a read-only run, non-null for a write one.</summary>
+    public Dictionary<string, IRunnerSession?> RunnerSeen { get; } = [];
+
     public Task<NodeResult> ExecuteAsync(NodeContext ctx, CancellationToken ct)
     {
         Executed.Add(ctx.Node.Id);
         UpstreamSeen[ctx.Node.Id] = new Dictionary<string, string>(ctx.UpstreamOutputs, StringComparer.Ordinal);
+        RunnerSeen[ctx.Node.Id] = ctx.Runner;
         return Task.FromResult(behaviour?.Invoke(ctx) ?? new NodeResult(true, $"{ctx.Node.Id}-output"));
+    }
+}
+
+/// <summary>
+/// A sandbox over a real temp directory with a scripted <see cref="RunAsync"/>: each command maps to
+/// a chosen exit code (default 0). Records the commands it ran and whether it was disposed, so a test
+/// can assert the session was both created and torn down.
+/// </summary>
+internal sealed class FakeRunnerSession : IRunnerSession
+{
+    private readonly Func<string, CommandResult> _script;
+
+    public FakeRunnerSession(Func<string, CommandResult>? script = null)
+    {
+        _script = script ?? (cmd => new CommandResult(0, $"ran: {cmd}", ""));
+        WorktreePath = Directory.CreateTempSubdirectory("harness-fake-runner-").FullName;
+    }
+
+    public string WorktreePath { get; }
+    public List<string> Commands { get; } = [];
+    public bool Disposed { get; private set; }
+
+    public Task<CommandResult> RunAsync(string command, CancellationToken ct)
+    {
+        Commands.Add(command);
+        return Task.FromResult(_script(command));
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Disposed = true;
+        try { Directory.Delete(WorktreePath, recursive: true); } catch (IOException) { /* best effort */ }
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
+/// Records every <see cref="CreateAsync"/> call and hands back a <see cref="FakeRunnerSession"/>.
+/// A read-only run must never touch this — tests assert <see cref="Created"/> stays empty for
+/// pr-review-shaped permissions.
+/// </summary>
+internal sealed class FakeRunnerFactory(Func<string, CommandResult>? script = null) : IRunnerFactory
+{
+    public List<(Run Run, string BaseRef)> Created { get; } = [];
+    public List<FakeRunnerSession> Sessions { get; } = [];
+
+    public Task<IRunnerSession> CreateAsync(Run run, string baseRef, CancellationToken ct)
+    {
+        Created.Add((run, baseRef));
+        var session = new FakeRunnerSession(script);
+        Sessions.Add(session);
+        return Task.FromResult<IRunnerSession>(session);
     }
 }
