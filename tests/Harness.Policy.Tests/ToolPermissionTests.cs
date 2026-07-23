@@ -74,7 +74,7 @@ public class ToolPermissionTests
     [InlineData("github.merge_pr")]        // does not exist, and never will (invariant 1)
     [InlineData("github.create_repo")]
     [InlineData("shell.exec")]
-    [InlineData("repo.write_worktree")]    // an M2 tool: not catalogued yet, so not usable yet
+    [InlineData("repo.delete_file")]       // a plausible-shaped name that is deliberately NOT catalogued
     public void Tool_outside_the_curated_catalog_is_denied_even_when_the_node_lists_it(string tool)
     {
         // The node listing it is the attack: in M0 this was the only check, and it was circular.
@@ -159,16 +159,22 @@ public class ToolPermissionTests
     // ---- the catalog itself ----
 
     [Fact]
-    public void Catalog_maps_the_M0_tool_surface_to_scope_and_level()
+    public void Catalog_maps_the_tool_surface_to_scope_and_level()
     {
         var expected = new (string Tool, string Scope, string Level)[]
         {
+            // M0/M1 read + comment surface
             ("github.pr_diff", "github", "read"),
             ("github.get_issue", "github", "read"),
             ("github.pr_comment", "github", "comment"),
             ("repo.read", "repo", "read"),
             ("repo.list", "repo", "read"),
             ("codesearch.query", "repo", "read"),
+            // M2 write surface — the levels the write workflows declare as their ceiling
+            ("github.issue_comment", "github", "comment"),
+            ("github.push_branch", "github", "open_pr+issues"),
+            ("github.open_pr", "github", "open_pr+issues"),
+            ("repo.write_worktree", "repo", "write-worktree"),
         };
 
         foreach (var (tool, scope, level) in expected)

@@ -36,6 +36,24 @@ tools:
     level: comment
     description: Post a review comment on a pull request.
 
+  - name: github.issue_comment
+    scope: github
+    level: comment
+    description: Post a comment on a GitHub issue.
+
+  # The write frontier. `open_pr+issues` is the ceiling; there is no level above it because there is
+  # no operation above it — no merge, no repo create/delete (invariant 1). push_branch and open_pr
+  # are the last two nodes any write workflow runs.
+  - name: github.push_branch
+    scope: github
+    level: open_pr+issues
+    description: Commit the worktree changes onto a new branch and push it.
+
+  - name: github.open_pr
+    scope: github
+    level: open_pr+issues
+    description: Open a pull request from a pushed branch. The workflow ends here; there is no merge.
+
   - name: repo.read
     scope: repo
     level: read
@@ -45,6 +63,11 @@ tools:
     scope: repo
     level: read
     description: List files in the repository worktree.
+
+  - name: repo.write_worktree
+    scope: repo
+    level: write-worktree
+    description: Write a file inside the run's isolated worktree.
 
   - name: codesearch.query
     scope: repo
