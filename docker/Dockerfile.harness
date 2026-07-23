@@ -13,11 +13,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=build /out .
-# The SDK image has no non-root `app` user (the aspnet image did), so create one: the runner must
-# not execute cloned, untrusted repo code as root. A fresh named volume inherits ownership from the
-# image directory it masks, so /data must be app-owned or every audit EmitAsync fails on write.
-RUN useradd --uid 1654 --create-home --shell /usr/sbin/nologin app \
-    && mkdir -p /data/audit-payloads /data/worktrees && chown -R app:app /data
+# Run as a non-root `app` user (uid 1654) — the runner must not execute cloned, untrusted repo code
+# as root. Create it only if the base image doesn't already ship it (the .NET 8 images do, but that
+# is not contractual). A fresh named volume inherits ownership from the image directory it masks, so
+# /data must be app-owned or every audit EmitAsync fails on write.
+RUN id -u app >/dev/null 2>&1 || useradd --uid 1654 --create-home --shell /usr/sbin/nologin app
+RUN mkdir -p /data/audit-payloads /data/worktrees && chown -R app:app /data
 USER app
 # Quiet the SDK's first-run telemetry/noise for a service that only ever shells `git`/`dotnet test`.
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
