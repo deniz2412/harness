@@ -1,0 +1,15 @@
+<Router AppAssembly="@typeof(App).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+    <NotFound>
+        <LayoutView Layout="@typeof(MainLayout)">
+            <div class="panel">
+                <h1>Not found</h1>
+                <p class="muted">No console page matches this address.</p>
+                <a class="btn" href="/">Back to runs</a>
+            </div>
+        </LayoutView>
+    </NotFound>
+</Router>

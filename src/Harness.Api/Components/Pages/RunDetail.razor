@@ -1,0 +1,437 @@
+@page "/run/{Id:guid}"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject IRunQueries Queries
+@inject IRunCoordinator Coordinator
+
+<PageTitle>Run @ShortId — Harness</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/">Runs</a> <span class="sep">/</span> <span class="mono">@ShortId</span></div>
+        <h1>Run detail</h1>
+    </div>
+    <div class="page-actions">
+        <span class="muted">@(_loading ? "refreshing…" : $"updated {UiFormat.Timestamp(_lastRefresh)}")</span>
+        <button class="btn" @onclick="RefreshAsync" disabled="@_loading">Refresh</button>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="banner banner-error">@_error</div>
+}
+
+@if (_view is null)
+{
+    @if (!_loading)
+    {
+        <div class="panel"><p class="muted">Run not found.</p><a class="btn" href="/">Back to runs</a></div>
+    }
+    else
+    {
+        <p class="muted">Loading…</p>
+    }
+}
+else
+{
+    var run = _view.Run;
+
+    <section class="panel">
+        <div class="header-grid">
+            <div><span class="k">Status</span><span class="badge badge-@UiFormat.StatusClass(run.Status)">@UiFormat.StatusLabel(run.Status)</span></div>
+            <div><span class="k">Workflow</span><span class="mono">@run.Workflow</span></div>
+            <div><span class="k">Repo</span><span class="mono">@run.Repo</span></div>
+            <div><span class="k">Initiator</span>@run.Initiator</div>
+            @if (run.PullRequest is int pr)
+            {
+                <div><span class="k">Pull request</span><span class="mono">#@pr</span></div>
+            }
+            @if (run.Issue is int issue)
+            {
+                <div><span class="k">Issue</span><span class="mono">#@issue</span></div>
+            }
+            <div><span class="k">Started</span><span class="nowrap">@UiFormat.Timestamp(run.StartedAt)</span></div>
+            <div><span class="k">Duration</span>@UiFormat.Duration(run.StartedAt, run.FinishedAt, _now)</div>
+            <div><span class="k">Workflow&nbsp;sha</span><span class="mono trunc" title="@run.WorkflowSha">@run.WorkflowSha</span></div>
+            <div><span class="k">Head&nbsp;seq</span><span class="mono">@run.HeadSeq</span></div>
+        </div>
+        <div class="totals">
+            <div class="stat"><span class="stat-v mono">@_view.TokensIn.ToString("N0")</span><span class="stat-k">tokens in</span></div>
+            <div class="stat"><span class="stat-v mono">@_view.TokensOut.ToString("N0")</span><span class="stat-k">tokens out</span></div>
+            <div class="stat"><span class="stat-v mono">@UiFormat.Cost(_view.CostUsd)</span><span class="stat-k">cost</span></div>
+            <div class="stat"><span class="stat-v mono">@_view.Events.Count</span><span class="stat-k">events</span></div>
+        </div>
+    </section>
+
+    @if (_pendingGate is not null)
+    {
+        <section class="panel panel-await">
+            <h2>Human gate — decision required</h2>
+            <div class="header-grid">
+                <div><span class="k">Node</span><span class="mono">@_pendingGate.Node</span></div>
+                <div><span class="k">Requested</span><span class="nowrap">@UiFormat.Timestamp(_pendingGate.RequestedAt)</span></div>
+                <div><span class="k">Decision</span><span class="badge badge-@UiFormat.GateClass(_pendingGate.Decision)">@_pendingGate.Decision</span></div>
+            </div>
+
+            <h3>Review the node output(s) this gate depends on</h3>
+            @if (_reviewOutputs is null)
+            {
+                <p class="muted">Loading outputs to review…</p>
+            }
+            else if (_reviewOutputs.Count == 0)
+            {
+                <p class="muted">No node output was recorded before this gate. Review the event timeline below before deciding.</p>
+            }
+            else
+            {
+                @foreach (var o in _reviewOutputs)
+                {
+                    <details class="review" open>
+                        <summary><span class="mono">@o.Node</span> <span class="muted">· node_end · seq @o.Seq</span></summary>
+                        <pre class="payload">@o.Text</pre>
+                    </details>
+                }
+            }
+
+            <div class="decide">
+                <label class="fld">
+                    <span>Approver <span class="muted">(recorded as a claim, not a verified identity)</span></span>
+                    <input class="input" @bind="_approver" placeholder="who is deciding" />
+                </label>
+                <label class="fld">
+                    <span>Reason <span class="muted">(optional)</span></span>
+                    <textarea class="input" rows="2" @bind="_reason" placeholder="why approve or reject"></textarea>
+                </label>
+                <div class="decide-actions">
+                    <button class="btn btn-approve" disabled="@_deciding" @onclick="() => DecideAsync(true)">Approve</button>
+                    <button class="btn btn-reject" disabled="@_deciding" @onclick="() => DecideAsync(false)">Reject</button>
+                </div>
+                @if (_decideMessage is not null)
+                {
+                    <div class="banner @(_decideOk ? "banner-ok" : "banner-error")">@_decideMessage</div>
+                }
+            </div>
+        </section>
+    }
+
+    <section class="panel">
+        <div class="panel-head">
+            <h2>Audit chain</h2>
+            <button class="btn" disabled="@_verifying" @onclick="VerifyAsync">@(_verifying ? "Verifying…" : "Verify chain")</button>
+        </div>
+        @if (_verify is not null)
+        {
+            <div class="banner @(_verify.Intact ? "banner-ok" : "banner-error")">
+                @if (_verify.Intact)
+                {
+                    <strong>Chain intact.</strong>
+                    <span>@(_verify.Reason ?? "every event verifies and the chain terminates at the recorded head anchor.")</span>
+                }
+                else
+                {
+                    <strong>Chain BROKEN.</strong>
+                    <span>First problem at seq @_verify.FirstBrokenSeq. @_verify.Reason</span>
+                }
+            </div>
+            @if (_verify.Events.Count > 0)
+            {
+                <div class="table-wrap">
+                    <table class="grid compact">
+                        <thead><tr><th class="num">Seq</th><th>Type</th><th>Node</th><th>Check</th></tr></thead>
+                        <tbody>
+                            @foreach (var c in _verify.Events)
+                            {
+                                <tr class="@(c.Ok ? null : "row-bad")">
+                                    <td class="num mono">@c.Seq</td>
+                                    <td class="mono">@c.Type</td>
+                                    <td class="mono">@c.Node</td>
+                                    <td>
+                                        @if (c.Ok)
+                                        {
+                                            <span class="badge badge-ok">ok</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge badge-failed">@c.Status</span> <span class="muted">@c.Detail</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        }
+    </section>
+
+    <section class="panel">
+        <h2>Event timeline</h2>
+        <div class="table-wrap">
+            <table class="grid">
+                <thead>
+                    <tr><th class="num">Seq</th><th>Type</th><th>Node</th><th>Time</th><th class="num">Tok in</th><th class="num">Tok out</th><th class="num">Cost</th><th></th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var e in _view.Events)
+                    {
+                        <tr class="@(_openSeq == e.Seq ? "row-open" : null)">
+                            <td class="num mono">@e.Seq</td>
+                            <td><span class="etype etype-@TypeClass(e.Type)">@e.Type</span></td>
+                            <td class="mono">@e.Node</td>
+                            <td class="nowrap">@UiFormat.Timestamp(e.Ts)</td>
+                            <td class="num">@(e.TokensIn == 0 ? "" : e.TokensIn.ToString("N0"))</td>
+                            <td class="num">@(e.TokensOut == 0 ? "" : e.TokensOut.ToString("N0"))</td>
+                            <td class="num mono">@(e.CostUsd == 0 ? "" : UiFormat.Cost(e.CostUsd))</td>
+                            <td class="num"><button class="btn btn-sm" @onclick="() => TogglePayloadAsync(e.Seq)">@(_openSeq == e.Seq ? "Hide" : "View")</button></td>
+                        </tr>
+                        @if (_openSeq == e.Seq)
+                        {
+                            <tr class="payload-row">
+                                <td colspan="8">
+                                    @if (_payloadLoading)
+                                    {
+                                        <p class="muted">Loading payload…</p>
+                                    }
+                                    else if (_payload is null)
+                                    {
+                                        <p class="muted">No payload recorded for this event (or the payload file is missing).</p>
+                                    }
+                                    else
+                                    {
+                                        <pre class="payload">@_payload</pre>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private RunView? _view;
+    private string? _error;
+    private bool _loading;
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+    private DateTimeOffset _lastRefresh = DateTimeOffset.UtcNow;
+    private Timer? _timer;
+    private readonly CancellationTokenSource _cts = new();
+
+    // Payload viewer
+    private long? _openSeq;
+    private string? _payload;
+    private bool _payloadLoading;
+
+    // Verify
+    private ChainVerificationResult? _verify;
+    private bool _verifying;
+
+    // Gate
+    private GateApproval? _pendingGate;
+    private IReadOnlyList<ReviewOutput>? _reviewOutputs;
+    private string _approver = "";
+    private string? _reason;
+    private bool _deciding;
+    private string? _decideMessage;
+    private bool _decideOk;
+
+    private string ShortId => Id.ToString()[..8];
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _timer?.Dispose();
+        _view = null;
+        _verify = null;
+        _openSeq = null;
+        await RefreshAsync();
+        if (_view is not null && UiFormat.IsLive(_view.Run.Status))
+        {
+            _timer = new Timer(async _ => await OnTickAsync(), null,
+                TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+        }
+    }
+
+    private async Task OnTickAsync()
+    {
+        await RefreshAsync();
+        await InvokeAsync(StateHasChanged);
+        // Stop polling once the run reaches a terminal state.
+        if (_view is not null && !UiFormat.IsLive(_view.Run.Status))
+        {
+            _timer?.Dispose();
+            _timer = null;
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading) return;
+        _loading = true;
+        try
+        {
+            var view = await Queries.GetRunAsync(Id, _cts.Token);
+            _view = view;
+            _now = DateTimeOffset.UtcNow;
+            _lastRefresh = _now;
+            _error = null;
+
+            if (view is not null)
+            {
+                var pending = view.Gates.FirstOrDefault(g => g.Decision == GateDecision.Pending);
+                // Only surface the decision panel when the run is genuinely paused on it.
+                _pendingGate = view.Run.Status == RunStatus.AwaitingApproval ? pending : null;
+                if (_pendingGate is not null)
+                {
+                    if (string.IsNullOrWhiteSpace(_approver)) _approver = view.Run.Initiator;
+                    await LoadReviewOutputsAsync(view, _pendingGate);
+                }
+                else
+                {
+                    _reviewOutputs = null;
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _error = "Could not load run: " + ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    // The node output(s) the operator reviews before deciding: the node_end payloads recorded
+    // before the gate paused the run. We only have events + payloads via the seam (no workflow DAG
+    // in the UI), so we surface every completed node output preceding the gate request — the
+    // material the gate depends on — rather than invent a dependency graph.
+    private async Task LoadReviewOutputsAsync(RunView view, GateApproval gate)
+    {
+        var gateReq = view.Events
+            .Where(e => e.Type == "gate_request" && e.Node == gate.Node)
+            .OrderByDescending(e => e.Seq)
+            .FirstOrDefault();
+        var ceiling = gateReq?.Seq ?? long.MaxValue;
+
+        var nodeEnds = view.Events
+            .Where(e => e.Type == "node_end" && e.Node != "-" && e.Seq < ceiling)
+            .OrderBy(e => e.Seq)
+            .ToList();
+
+        var outputs = new List<ReviewOutput>(nodeEnds.Count);
+        foreach (var e in nodeEnds)
+        {
+            string? text;
+            try { text = await Queries.GetEventPayloadAsync(Id, e.Seq, _cts.Token); }
+            catch (OperationCanceledException) { return; }
+            catch { text = null; }
+            outputs.Add(new ReviewOutput(e.Seq, e.Node, text ?? "(payload unavailable)"));
+        }
+        _reviewOutputs = outputs;
+    }
+
+    private async Task TogglePayloadAsync(long seq)
+    {
+        if (_openSeq == seq)
+        {
+            _openSeq = null;
+            _payload = null;
+            return;
+        }
+        _openSeq = seq;
+        _payload = null;
+        _payloadLoading = true;
+        try { _payload = await Queries.GetEventPayloadAsync(Id, seq, _cts.Token); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _payload = "Could not load payload: " + ex.Message; }
+        finally { _payloadLoading = false; }
+    }
+
+    private async Task VerifyAsync()
+    {
+        _verifying = true;
+        try { _verify = await Queries.VerifyAsync(Id, _cts.Token); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { _error = "Verify failed: " + ex.Message; }
+        finally { _verifying = false; }
+    }
+
+    private async Task DecideAsync(bool approve)
+    {
+        if (_pendingGate is null) return;
+        if (string.IsNullOrWhiteSpace(_approver))
+        {
+            _decideOk = false;
+            _decideMessage = "An approver must be recorded before deciding.";
+            return;
+        }
+        _deciding = true;
+        _decideMessage = null;
+        try
+        {
+            var outcome = await Coordinator.DecideAsync(
+                Id, _pendingGate.Node, approve, _approver.Trim(), _reason, _cts.Token);
+            _decideOk = outcome == GateOutcome.Accepted;
+            _decideMessage = DecideMessage(outcome, approve);
+            if (_decideOk)
+            {
+                _reason = null;
+                await RefreshAsync();
+                // The run has resumed; pick the live timer back up until it terminates.
+                if (_view is not null && UiFormat.IsLive(_view.Run.Status) && _timer is null)
+                {
+                    _timer = new Timer(async _ => await OnTickAsync(), null,
+                        TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _decideOk = false;
+            _decideMessage = "The decision could not be recorded: " + ex.Message;
+        }
+        finally { _deciding = false; }
+    }
+
+    private static string DecideMessage(GateOutcome outcome, bool approve) => outcome switch
+    {
+        GateOutcome.Accepted => approve
+            ? "Approved. The run is resuming past the gate."
+            : "Rejected. The run has been closed out.",
+        GateOutcome.RunNotFound => "This run no longer exists.",
+        GateOutcome.NotAwaitingApproval => "This run is no longer awaiting approval — it may have been decided already.",
+        GateOutcome.RepoNoLongerAllowlisted => "The run's repository is no longer allowlisted, so it cannot resume. Fail-closed refusal.",
+        GateOutcome.DefinitionChanged => "The workflow definition changed while this run was paused; the decision does not carry over. Start a new run.",
+        GateOutcome.GateNotFound => "No pending gate was found for this node.",
+        GateOutcome.AlreadyDecided => "This gate has already been decided.",
+        _ => "The decision was refused."
+    };
+
+    private static string TypeClass(string type) => type switch
+    {
+        "node_start" => "start",
+        "node_end" => "end",
+        "model_call" => "model",
+        "tool_call" => "tool",
+        "tool_result" => "tool",
+        "gate_request" => "gate",
+        "gate_decision" => "gate",
+        "policy_block" => "block",
+        _ => "other"
+    };
+
+    private sealed record ReviewOutput(long Seq, string Node, string Text);
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

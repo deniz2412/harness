@@ -1,0 +1,105 @@
+@page "/launch"
+@rendermode InteractiveServer
+@inject IRunCoordinator Coordinator
+@inject NavigationManager Nav
+
+<PageTitle>Launch a run — Harness</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/">Runs</a> <span class="sep">/</span> <span>Launch</span></div>
+        <h1>Launch a run</h1>
+    </div>
+</div>
+
+<section class="panel form-panel">
+    <p class="muted">
+        A run may only target an allowlisted repository, and the workflow must load. Both checks are
+        enforced by the platform — this form only submits your request.
+    </p>
+
+    <label class="fld">
+        <span>Workflow</span>
+        <input class="input" @bind="_workflow" placeholder="e.g. pr-review" />
+    </label>
+    <label class="fld">
+        <span>Repository <span class="muted">(owner/name)</span></span>
+        <input class="input" @bind="_repo" placeholder="e.g. deniz2412/test-repo-harness" />
+    </label>
+    <div class="two-col">
+        <label class="fld">
+            <span>Pull request # <span class="muted">(optional)</span></span>
+            <input class="input" type="number" min="1" @bind="_pr" />
+        </label>
+        <label class="fld">
+            <span>Issue # <span class="muted">(optional)</span></span>
+            <input class="input" type="number" min="1" @bind="_issue" />
+        </label>
+    </div>
+    <label class="fld">
+        <span>Initiator <span class="muted">(recorded as a claim; optional)</span></span>
+        <input class="input" @bind="_initiator" placeholder="who is launching this" />
+    </label>
+
+    <div class="decide-actions">
+        <button class="btn btn-primary" disabled="@_busy" @onclick="StartAsync">@(_busy ? "Starting…" : "Start run")</button>
+    </div>
+
+    @if (_message is not null)
+    {
+        <div class="banner @(_ok ? "banner-ok" : "banner-error")">@_message</div>
+    }
+</section>
+
+@code {
+    private string _workflow = "";
+    private string _repo = "";
+    private int? _pr;
+    private int? _issue;
+    private string _initiator = "";
+    private bool _busy;
+    private string? _message;
+    private bool _ok;
+
+    private async Task StartAsync()
+    {
+        _message = null;
+        if (string.IsNullOrWhiteSpace(_workflow) || string.IsNullOrWhiteSpace(_repo))
+        {
+            _ok = false;
+            _message = "A workflow and a repository are required.";
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var initiator = string.IsNullOrWhiteSpace(_initiator) ? null : _initiator.Trim();
+            var outcome = await Coordinator.StartAsync(
+                _workflow.Trim(), _repo.Trim(), _pr, _issue, initiator);
+            switch (outcome.Status)
+            {
+                case StartStatus.Started when outcome.Run is not null:
+                    Nav.NavigateTo($"/run/{outcome.Run.Id}");
+                    return;
+                case StartStatus.Started:
+                    _ok = true;
+                    _message = "Run started.";
+                    break;
+                case StartStatus.RepoNotAllowlisted:
+                    _ok = false;
+                    _message = $"Repository '{_repo}' is not allowlisted. It must be added to the platform's repo allowlist before a run can target it.";
+                    break;
+                case StartStatus.BadWorkflow:
+                    _ok = false;
+                    _message = "The workflow could not be loaded: " + (outcome.Error ?? "unknown error") + ".";
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _ok = false;
+            _message = "The run could not be started: " + ex.Message;
+        }
+        finally { _busy = false; }
+    }
+}

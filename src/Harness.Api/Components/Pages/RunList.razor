@@ -1,0 +1,134 @@
+@page "/"
+@rendermode InteractiveServer
+@implements IDisposable
+@inject IRunQueries Queries
+
+<PageTitle>Runs — Harness</PageTitle>
+
+<div class="page-head">
+    <h1>Runs</h1>
+    <div class="page-actions">
+        <span class="muted" title="The list refreshes on its own while runs are active.">
+            @(_loading ? "refreshing…" : $"updated {UiFormat.Timestamp(_lastRefresh)}")
+        </span>
+        <button class="btn" @onclick="RefreshAsync" disabled="@_loading">Refresh</button>
+        <a class="btn btn-primary" href="/launch">Launch a run</a>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="banner banner-error">@_error</div>
+}
+
+@if (_runs is null)
+{
+    <p class="muted">Loading runs…</p>
+}
+else if (_runs.Count == 0)
+{
+    <div class="panel">
+        <p class="muted">No runs recorded yet.</p>
+        <a class="btn btn-primary" href="/launch">Launch the first run</a>
+    </div>
+}
+else
+{
+    @if (_runs.Any(r => r.Status == RunStatus.AwaitingApproval))
+    {
+        <div class="banner banner-await">
+            @_runs.Count(r => r.Status == RunStatus.AwaitingApproval) run(s) awaiting a human decision.
+        </div>
+    }
+    <div class="table-wrap">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th>Status</th>
+                    <th>Workflow</th>
+                    <th>Repo</th>
+                    <th>Initiator</th>
+                    <th>Started</th>
+                    <th>Duration</th>
+                    <th class="num">Events</th>
+                    <th class="num">Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var r in _runs)
+                {
+                    <tr class="clickable @(r.Status == RunStatus.AwaitingApproval ? "row-await" : null)"
+                        @onclick="() => Open(r.Id)">
+                        <td><span class="badge badge-@UiFormat.StatusClass(r.Status)">@UiFormat.StatusLabel(r.Status)</span></td>
+                        <td class="mono">@r.Workflow</td>
+                        <td class="mono">@r.Repo</td>
+                        <td>@r.Initiator</td>
+                        <td class="nowrap" title="@UiFormat.Timestamp(r.StartedAt)">@UiFormat.Timestamp(r.StartedAt)</td>
+                        <td class="nowrap">@UiFormat.Duration(r.StartedAt, r.FinishedAt, _now)</td>
+                        <td class="num">@r.EventCount</td>
+                        <td class="num mono">@UiFormat.Cost(r.CostUsd)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private const int Limit = 50;
+    private IReadOnlyList<RunListItem>? _runs;
+    private string? _error;
+    private bool _loading;
+    private DateTimeOffset _lastRefresh = DateTimeOffset.UtcNow;
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+    private Timer? _timer;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        // ~3s live refresh: a running or awaiting-approval run updates without a full reload.
+        _timer = new Timer(async _ => await OnTickAsync(), null,
+            TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    private async Task OnTickAsync()
+    {
+        _now = DateTimeOffset.UtcNow;
+        await RefreshAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading) return;
+        _loading = true;
+        try
+        {
+            _runs = await Queries.ListRunsAsync(Limit, _cts.Token);
+            _now = DateTimeOffset.UtcNow;
+            _lastRefresh = _now;
+            _error = null;
+        }
+        catch (OperationCanceledException) { /* disposing */ }
+        catch (Exception ex)
+        {
+            _error = "Could not load runs: " + ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Open(Guid id) => Nav.NavigateTo($"/run/{id}");
+
+    [Inject] private NavigationManager Nav { get; set; } = default!;
+
+    public void Dispose()
+    {
+        _timer?.Dispose();
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

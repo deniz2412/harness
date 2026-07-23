@@ -1,0 +1,19 @@
+@inherits LayoutComponentBase
+
+<div class="app-shell">
+    <header class="topbar">
+        <div class="brand">
+            <span class="brand-mark">⛓</span>
+            <span class="brand-name">Harness</span>
+            <span class="brand-sub">Operations Console</span>
+        </div>
+        <nav class="topnav">
+            <NavLink class="navlink" href="/" Match="NavLinkMatch.All">Runs</NavLink>
+            <NavLink class="navlink" href="/launch">Launch</NavLink>
+        </nav>
+        <div class="env-tag">read-only over the audit trail · gate decisions are the only write</div>
+    </header>
+    <main class="content">
+        @Body
+    </main>
+</div>
