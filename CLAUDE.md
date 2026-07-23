@@ -45,24 +45,25 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅ and M1 ✅ — done and verified.** M0 exit check passed (`docs/m0-exit-check.md`); M1
-governance hardening shipped and its exit check passed on a cold rebuild (`docs/m1-exit-check.md`),
-review gate in `REVIEW.md`. What M1 landed: data-driven secret ruleset + real permission-ceiling
-enforcement; human-gate mechanics (pause/approve/reject/resume) on the `gate:` attribute; workflow
-+prompt content-hash pinning (`WorkflowSha`); every tool call audited (`tool_call`/`tool_result`)
-and policed at one seam (`AuditedTool`), fail-closed against MAF's retry loop; EF migrations
-(replaced `EnsureCreated`); `harness-audit` CLI; a tamper-evident hash chain that binds event
-metadata + a per-run head anchor, with `Events` append-only at the DB; gateway spend/rate budgets;
-a STRIDE threat model (`docs/threat-model.md`). 163 offline tests.
+**M0 ✅, M1 ✅, M2 ✅ — done and verified.** Exit checks in `docs/m0-exit-check.md`,
+`docs/m1-exit-check.md`, `docs/m2-exit-check.md`; review gates in `REVIEW.md`.
+- **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
+  workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
+  EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
+  anchor, `Events` append-only at the DB); gateway budgets; STRIDE threat model.
+- **M2** landed the write path: the `gate`/`bash`/`agent-loop` node kinds; a sandboxed subprocess
+  runner behind `IRunnerFactory` (per-run worktree that survives the human gate; the ephemeral
+  container is a documented drop-in); write tools (`push_branch`/`open_pr`/`write_worktree`/
+  `issue_comment`); `test-generation.yaml` + `issue-to-pr.yaml` (human-gated, end at PR); a
+  golden-run eval harness. **Demonstrated live:** a human-gated `test-generation` run opened a real
+  PR (test-repo-harness#2) — writes gated, ending at a PR, no merge. 228 offline tests.
 
-**Next: M2 — write path.** Do NOT start it without explicit go-ahead. Two M1 residuals feed it,
-tracked in `REVIEW.md`/`docs/threat-model.md`: auth + real initiator identity (F1) and a
-least-privilege DB runtime role (F4) should land as M2 gates the first externally-visible writes.
+**Next: M3 — multi-repo & search.** Do NOT start it without explicit go-ahead. Residuals that feed
+later work, tracked in `REVIEW.md`/`docs/threat-model.md`: no auth + caller-supplied initiator (F1)
+and no least-privilege DB role (F4) remain open; the runner has no egress control (F11 — closes
+with the container drop-in). These matter more as the write path widens.
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **M2 — write path:** `agent-loop`/`bash`/`gate` node executors, runner-container isolation,
-  `test-generation.yaml` + `issue-to-pr.yaml` (end at PR, human-gated), golden-run eval harness.
-  Note: gate *mechanics* already exist (M1); M2 adds the `gate`/`agent-loop`/`bash` node *kinds*.
 - **M3 — multi-repo & search:** per-run `GitHubToolset` factory from `run.Repo` + repo allowlist
   in config (policy control), read-only `github.search_code`/`github.search_repos`. No repo creation.
 - **F1 — operations console** (after M2, ok parallel with M3): run list, event/audit viewer,

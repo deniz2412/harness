@@ -3,9 +3,11 @@
 **Bank-owned AI coding harness on Microsoft Agent Framework (.NET), running on Docker Desktop**
 **Companion to:** AI-Harness-Analysis-and-Plan.md, Internal-Harness-Build-Analysis.md,
 Harness-Product-Vision-Roadmap.md (long-term horizons beyond M4)
-**Date:** 23 Jul 2026 · **Status:** v2.3 — local MVP scope; **M0 ✅ and M1 ✅ complete and
-verified** (exit checks in `docs/m0-exit-check.md`, `docs/m1-exit-check.md`; review in `REVIEW.md`).
-Next: M2 (write path), not started. Copies of this doc live in the repo at `harness/docs/` — keep both in sync.
+**Date:** 23 Jul 2026 · **Status:** v2.4 — local MVP scope; **M0 ✅, M1 ✅, M2 ✅ complete and
+verified** (exit checks in `docs/m0-exit-check.md`, `docs/m1-exit-check.md`, `docs/m2-exit-check.md`;
+reviews in `REVIEW.md`). M2's write path was demonstrated live: a human-gated PR
+(test-repo-harness#2). Next: M3 (multi-repo & search), not started. Copies of this doc live in the
+repo at `harness/docs/` — keep both in sync.
 
 ---
 
@@ -262,11 +264,22 @@ policed at one fail-closed seam; EF migrations; `harness-audit` CLI; tamper-evid
 model (`docs/threat-model.md`). Verified on a cold rebuild — see `docs/m1-exit-check.md`, `REVIEW.md`.
 PII redaction at the gateway and a least-privilege DB role are carried as tracked residuals (M2/graduation).
 
-**M2 — Write path + multi-workflow (≈3 wks).**
+**M2 — Write path + multi-workflow (≈3 wks). ✅ Complete (23 Jul 2026).**
 `agent-loop`/`bash`/`gate` node kinds; runner-container isolation; `test-generation.yaml` and
 `issue-to-pr.yaml` live behind human gates, ending at PR creation. GitHub Issues/Projects tools.
 Golden-run eval harness comparing outputs with the parallel **Archon pilot** on identical tasks.
 *Exit: three workflows operational; writes gated; Archon-vs-platform bake-off data in hand.*
+Delivered: the three new node kinds; a sandboxed subprocess runner behind `IRunnerFactory` with a
+per-run worktree that survives the human gate (the ephemeral **container** is a documented drop-in —
+runner isolation is the seam, not yet the container); write tools (`push_branch`/`open_pr`/
+`write_worktree`/`issue_comment`) ending at open_pr, no merge; both workflows human-gated; the
+golden-run eval harness. **Demonstrated live** — a human-gated `test-generation` run opened a real
+PR (test-repo-harness#2), audited, chain intact. See `docs/m2-exit-check.md`, `REVIEW.md`.
+*Spec deviation recorded:* the **Archon bake-off is descoped to eval-harness-ready** — the external
+Archon pilot is not available in this environment, so the golden-run harness is built and tested but
+no Archon-vs-platform comparison data exists yet; feed Archon outputs in when available. Runner
+isolation ships as a subprocess sandbox, not a container (documented drop-in); egress control (F11)
+and a least-privilege DB role (F4) remain graduation-time residuals.
 
 **M3 — Multi-repo & search (≈1–2 wks).**
 Un-bind GitHub tooling from startup config: `GitHubToolset` becomes **per-run** (factory from
