@@ -19,11 +19,13 @@ public sealed class RunnerOptions
     /// <summary>
     /// Programs the runner may launch, matched against the first token of the command with
     /// <see cref="StringComparer.Ordinal"/> (fail-closed: exact, case-sensitive, bare program name —
-    /// no path, no shell resolution beyond the OS PATH lookup). Default is the M2 write path's needs:
-    /// <c>git</c> (checkout/add/commit/push) and <c>dotnet</c> (build/test validation). Notably
-    /// absent and never to be added here: anything that merges or creates/deletes repos (invariant 1).
+    /// no path, no shell resolution beyond the OS PATH lookup). Defaults cover the write path
+    /// (<c>git</c>, <c>dotnet</c>) plus the M6 security scanners' analyzer tooling: <c>gitleaks</c>
+    /// (secret detection — read-only, produces findings). Every entry is a curated addition made by
+    /// reviewed platform change (invariant 7); notably absent and never to be added: anything that
+    /// merges or creates/deletes repos, or any offensive tool (invariant 1, vision §3 boundary).
     /// </summary>
-    public IReadOnlyCollection<string> AllowedPrograms { get; init; } = new[] { "git", "dotnet" };
+    public IReadOnlyCollection<string> AllowedPrograms { get; init; } = new[] { "git", "dotnet", "gitleaks" };
 
     /// <summary>Per-command wall-clock budget. On overrun the process tree is killed and the command
     /// returns <see cref="SubprocessRunnerSession.TimeoutExitCode"/> (closes threat-model F7's time half).</summary>
