@@ -38,8 +38,8 @@ public sealed class WorktreeScopingTests : IDisposable
         File.WriteAllText(Path.Combine(_shared, "shared-only.txt"), "in the shared root");
         File.WriteAllText(Path.Combine(_perRun, "worktree-only.txt"), "in this run's worktree");
 
-        var github = new GitHubToolset(new GitHubClient(new ProductHeaderValue("scoping-tests")), "o", "r");
-        _tools = new ToolRegistry(github, new RepoToolset(_shared), new PolicyPipeline(), audit);
+        var githubFactory = new GitHubToolsetFactory(new GitHubClient(new ProductHeaderValue("scoping-tests")));
+        _tools = new ToolRegistry(githubFactory, ["o/r"], new RepoToolset(_shared), new PolicyPipeline(), audit);
     }
 
     private AIFunction Resolve(string tool, ToolCallContext ctx) =>

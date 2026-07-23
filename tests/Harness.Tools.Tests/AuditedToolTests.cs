@@ -39,8 +39,8 @@ public sealed class AuditedToolTests : IDisposable
         _audit = new AuditEmitter(factory, _payloadDir);
         // A GitHub client that is never called: this suite only exercises repo.read. The catalog
         // requires the toolset to exist, not to reach the network.
-        var github = new GitHubToolset(new GitHubClient(new ProductHeaderValue("tools-tests")), "o", "r");
-        _tools = new ToolRegistry(github, new RepoToolset(_worktree), new PolicyPipeline(), _audit);
+        var githubFactory = new GitHubToolsetFactory(new GitHubClient(new ProductHeaderValue("tools-tests")));
+        _tools = new ToolRegistry(githubFactory, ["o/r"], new RepoToolset(_worktree), new PolicyPipeline(), _audit);
     }
 
     private static ToolCallContext ReviewCtx() =>

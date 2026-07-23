@@ -11,7 +11,8 @@ namespace Harness.Tools;
 /// pre-tool policy check, the outbound scan and the audit event unavoidable rather than optional.
 /// </summary>
 public sealed class ToolRegistry(
-    GitHubToolset github, RepoToolset repo, PolicyPipeline policy, AuditEmitter audit)
+    GitHubToolsetFactory githubFactory, IReadOnlyCollection<string> repoAllowlist,
+    RepoToolset repo, PolicyPipeline policy, AuditEmitter audit)
 {
     public IList<AITool> Resolve(ToolCallContext ctx)
     {
@@ -45,12 +46,30 @@ public sealed class ToolRegistry(
     private AIFunction Build(string name, ToolCallContext ctx)
     {
         var scoped = RepoFor(ctx);   // per-run worktree for write workflows; shared root otherwise
+        // Per-run GitHub binding (M3): the toolset targets the run's own repo, not a single
+        // startup-configured one. Built lazily, only when a github.* tool is actually resolved — a
+        // repo-only node never needs it. The allowlist has already been enforced (before any tool
+        // runs), so by here ctx.Repo is a permitted repo; a null repo is a wiring error.
+        GitHubToolset Github() => githubFactory.ForRepo(
+            ctx.Repo ?? throw new InvalidOperationException(
+                "A run must target a repo (ctx.Repo) to use github.* tools."));
         return name.ToLowerInvariant() switch
         {
-        "github.pr_diff"    => AIFunctionFactory.Create(github.GetPrDiff,     "github_pr_diff",    "Get the unified diff of a pull request."),
-        "github.pr_comment" => AIFunctionFactory.Create(github.PostPrComment, "github_pr_comment", "Post a review comment on a pull request."),
-        "github.get_issue"  => AIFunctionFactory.Create(github.GetIssue,      "github_get_issue",  "Read a GitHub issue title and body."),
-        "github.issue_comment" => AIFunctionFactory.Create(github.IssueComment, "github_issue_comment", "Post a comment on a GitHub issue."),
+        "github.pr_diff"    => AIFunctionFactory.Create(Github().GetPrDiff,     "github_pr_diff",    "Get the unified diff of a pull request."),
+        "github.pr_comment" => AIFunctionFactory.Create(Github().PostPrComment, "github_pr_comment", "Post a review comment on a pull request."),
+        "github.get_issue"  => AIFunctionFactory.Create(Github().GetIssue,      "github_get_issue",  "Read a GitHub issue title and body."),
+        "github.issue_comment" => AIFunctionFactory.Create(Github().IssueComment, "github_issue_comment", "Post a comment on a GitHub issue."),
+
+        // Cross-repo search (M3): read-only, and confined to the allowlist — the agent supplies only
+        // the query; the permitted repo scope is closed over here, so search can never reach outside
+        // the policy boundary even though it is not bound to ctx.Repo.
+        "github.search_code"  => AIFunctionFactory.Create(
+            (string query) => Github().SearchCode(repoAllowlist, query),
+            "github_search_code", "Search code across the allowlisted repositories (read-only)."),
+        "github.search_repos" => AIFunctionFactory.Create(
+            (string query) => Github().SearchRepos(repoAllowlist, query),
+            "github_search_repos", "Search the allowlisted repositories by name and description (read-only)."),
+
         "repo.read"         => AIFunctionFactory.Create(scoped.ReadFile,      "repo_read_file",    "Read a file from the repository worktree."),
         "repo.list"         => AIFunctionFactory.Create(scoped.ListFiles,     "repo_list_files",   "List files in the repository worktree."),
         "codesearch.query"  => AIFunctionFactory.Create(scoped.Search,        "codesearch_query",  "Search the repository for a term."),
@@ -60,10 +79,10 @@ public sealed class ToolRegistry(
         // happen; the toolset methods self-guard too, as defence in depth.
         "github.open_pr"    => AIFunctionFactory.Create(
             (int? issue, string head, string @base, string title, string body) =>
-                github.OpenPr(issue, head, @base, title, body),
+                Github().OpenPr(issue, head, @base, title, body),
             "github_open_pr", "Open a pull request from a pushed branch. The workflow ends here; there is no merge."),
         "github.push_branch" => AIFunctionFactory.Create(
-            (string branch, string message) => github.PushBranch(
+            (string branch, string message) => Github().PushBranch(
                 ctx.Runner ?? throw new InvalidOperationException(
                     "push_branch requires an isolated runner worktree; none is attached to this node."),
                 branch, message),

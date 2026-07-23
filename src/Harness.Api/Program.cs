@@ -52,25 +52,36 @@ builder.Services.AddSingleton<IApprovalStore>(sp => new EfApprovalStore(
     sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>(),
     sp.GetRequiredService<AuditEmitter>()));
 builder.Services.AddSingleton(sp => new WorkflowLoader(paths["Workflows"]!, paths["Prompts"]!));
-// Fail at startup rather than 404-ing mid-run: empty owner/repo are not null, so the tools would
-// otherwise happily call GitHub with a blank path. Env vars (GitHub__Owner) override appsettings.
-var githubOwner = cfg["GitHub:Owner"];
-var githubRepo = cfg["GitHub:Repo"];
+// M3 un-bound the tools from a single startup repo: which repo a run targets now comes from the
+// request (validated against the allowlist below), so GitHub:Owner/Repo config is no longer the
+// source of truth. The token is still required.
 var githubToken = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-if (string.IsNullOrWhiteSpace(githubOwner) || string.IsNullOrWhiteSpace(githubRepo))
-    throw new InvalidOperationException(
-        "GitHub:Owner and GitHub:Repo must be set, via appsettings.json or the "
-        + "GitHub__Owner / GitHub__Repo environment variables.");
 if (string.IsNullOrWhiteSpace(githubToken))
     throw new InvalidOperationException(
         "GITHUB_TOKEN is not set. Copy .env.example to .env and fill it in.");
 
 builder.Services.AddSingleton<IGitHubClient>(_ => new GitHubClient(new ProductHeaderValue("harness"))
     { Credentials = new Credentials(githubToken) });
-builder.Services.AddSingleton(sp => new GitHubToolset(
-    sp.GetRequiredService<IGitHubClient>(), githubOwner, githubRepo));
+
+// M3: GitHub tooling is per-run, not bound to one startup repo. The factory builds a toolset for
+// whatever repo a run targets; the repo allowlist (operator config) is the policy control deciding
+// which repos that may be. Fail-closed: an empty/absent allowlist denies every run, so an operator
+// who forgets to configure it cannot accidentally run against everything.
+var allowlistEntries = cfg.GetSection("RepoAllowlist").Get<string[]>() ?? [];
+var repoAllowlist = new RepoAllowlist(allowlistEntries);   // throws at startup on a malformed entry
+if (repoAllowlist.Entries.Count == 0)
+    throw new InvalidOperationException(
+        "RepoAllowlist is empty. List the repos (owner/name, or owner/*) any run may target in "
+        + "appsettings.json / configuration — a run against a repo not listed here is refused.");
+builder.Services.AddSingleton(repoAllowlist);
+builder.Services.AddSingleton(sp => new GitHubToolsetFactory(sp.GetRequiredService<IGitHubClient>()));
 builder.Services.AddSingleton(sp => new RepoToolset(paths["Worktrees"]!));
-builder.Services.AddSingleton<ToolRegistry>();
+builder.Services.AddSingleton(sp => new ToolRegistry(
+    sp.GetRequiredService<GitHubToolsetFactory>(),
+    sp.GetRequiredService<RepoAllowlist>().Entries,   // search is confined to the allowlist
+    sp.GetRequiredService<RepoToolset>(),
+    sp.GetRequiredService<PolicyPipeline>(),
+    sp.GetRequiredService<AuditEmitter>()));
 
 // The write-path sandbox (M2): a per-run worktree the write nodes act in. Subprocess-backed for
 // the local PoC — a container drop-in replaces it behind IRunnerFactory at graduation. The token
@@ -154,10 +165,20 @@ static Task StartAsync(Run run, WorkflowDefinition wf, DagExecutor dag, IRunStor
 
 // --- endpoints ---
 app.MapPost("/runs", async (RunRequest req, WorkflowLoader loader, DagExecutor dag,
-    IRunStore runs, AuditEmitter audit, PolicyPipeline policy, ILoggerFactory logs,
-    CancellationToken ct) =>
+    IRunStore runs, AuditEmitter audit, PolicyPipeline policy, RepoAllowlist allowlist,
+    ILoggerFactory logs, CancellationToken ct) =>
 {
     var log = logs.CreateLogger("Harness.Run");
+
+    // Fail-closed, before anything is created or any tool runs: a run may only target a repo the
+    // operator has allowlisted (M3's policy control). A non-allowlisted or malformed repo is a bad
+    // request, not a server fault, and never reaches the tools.
+    if (!allowlist.IsAllowed(req.Repo))
+        return Results.BadRequest(new
+        {
+            error = $"Repository '{req.Repo}' is not allowlisted. Add it to RepoAllowlist to run against it."
+        });
+
     WorkflowDefinition wf;
     try { wf = loader.Load(req.Workflow); }
     catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException)
@@ -214,13 +235,22 @@ app.MapGet("/runs/{id:guid}/gates", async (Guid id, IDbContextFactory<HarnessDbC
 app.MapPost("/runs/{id:guid}/gates/{node}/decide", async (
     Guid id, string node, GateDecisionRequest body, IApprovalStore approvals, IRunStore runs,
     WorkflowLoader loader, DagExecutor dag, AuditEmitter audit, PolicyPipeline policy,
-    ILoggerFactory logs, CancellationToken ct) =>
+    RepoAllowlist allowlist, ILoggerFactory logs, CancellationToken ct) =>
 {
     var log = logs.CreateLogger("Harness.Run");
     var run = await runs.GetAsync(id, ct);
     if (run is null) return Results.NotFound();
     if (run.Status != RunStatus.AwaitingApproval)
         return Results.Conflict(new { error = $"Run is {run.Status}, not awaiting approval." });
+
+    // Resuming re-runs the DAG (an approval reaches the write tools), so re-check the allowlist: if
+    // the repo was removed from config and the service restarted while this run was paused, it must
+    // not resume against a now-forbidden repo. Fail-closed on the current policy, not the old one.
+    if (!allowlist.IsAllowed(run.Repo))
+        return Results.Conflict(new
+        {
+            error = $"Repository '{run.Repo}' is no longer allowlisted; this run cannot resume."
+        });
 
     var decision = body.Approve ? GateDecision.Approved : GateDecision.Rejected;
     // The approver is whatever the caller claims until there is authentication — recorded as a
