@@ -3,6 +3,7 @@ using Harness.Audit;
 using Harness.Contracts;
 using Harness.Engine;
 using Harness.Policy;
+using Harness.Runner;
 using Harness.Tools;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -70,10 +71,28 @@ builder.Services.AddSingleton(sp => new GitHubToolset(
     sp.GetRequiredService<IGitHubClient>(), githubOwner, githubRepo));
 builder.Services.AddSingleton(sp => new RepoToolset(paths["Worktrees"]!));
 builder.Services.AddSingleton<ToolRegistry>();
+
+// The write-path sandbox (M2): a per-run worktree the write nodes act in. Subprocess-backed for
+// the local PoC — a container drop-in replaces it behind IRunnerFactory at graduation. The token
+// accessor is the same GITHUB_TOKEN the rest of the platform uses; the factory clones into the
+// mounted worktrees volume and never logs the token.
+builder.Services.AddSingleton<IRunnerFactory>(_ => new SubprocessRunnerFactory(
+    tokenAccessor: () => githubToken,
+    options: new RunnerOptions { WorktreeRoot = paths["Worktrees"]! }));
+
+// Node-kind executors. `agent` and `agent-loop` reach the model (gateway only); `bash` and `gate`
+// do not. All four are registered as INodeExecutor and dispatched by the DAG on node.Kind.
 builder.Services.AddSingleton<INodeExecutor>(sp => new AgentNodeExecutor(
     sp.GetRequiredService<GatewayOptions>(), sp.GetRequiredService<ToolRegistry>(),
     sp.GetRequiredService<PolicyPipeline>(), sp.GetRequiredService<AuditEmitter>(),
     paths["Prompts"]!));
+builder.Services.AddSingleton<INodeExecutor>(sp => new AgentLoopNodeExecutor(
+    sp.GetRequiredService<GatewayOptions>(), sp.GetRequiredService<ToolRegistry>(),
+    sp.GetRequiredService<PolicyPipeline>(), sp.GetRequiredService<AuditEmitter>(),
+    sp.GetRequiredService<IAuditLog>(), paths["Prompts"]!));
+builder.Services.AddSingleton<INodeExecutor>(sp => new BashNodeExecutor(
+    sp.GetRequiredService<IAuditLog>()));
+builder.Services.AddSingleton<INodeExecutor>(_ => new GateNodeExecutor());
 builder.Services.AddSingleton<DagExecutor>();
 
 var app = builder.Build();

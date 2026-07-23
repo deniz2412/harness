@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
   <ItemGroup>
     <ProjectReference Include="../Harness.Agents/Harness.Agents.csproj" />
+    <ProjectReference Include="../Harness.Runner/Harness.Runner.csproj" />
   </ItemGroup>
 </Project>
