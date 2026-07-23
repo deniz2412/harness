@@ -58,7 +58,7 @@ internal static class AgentInvoker
         // each call is policed and audited at the point of invocation. Runner is null for read-only
         // nodes and non-null for write-path ones — the tool decides what that permits.
         var toolCtx = new ToolCallContext(
-            ctx.Run.Id, ctx.Node.Id, ctx.Node.Tools, ctx.Workflow.Permissions, ctx.Runner);
+            ctx.Run.Id, ctx.Node.Id, ctx.Node.Tools, ctx.Workflow.Permissions, ctx.Runner, ctx.Run.Repo);
 
         AIAgent agent = client.GetChatClient(model).AsAIAgent(
             instructions: prompt,

@@ -20,10 +20,19 @@ public sealed class ToolCallContext(
     string nodeId,
     IReadOnlyCollection<string> nodeTools,
     IReadOnlyDictionary<string, string> workflowPermissions,
-    IRunnerSession? runner = null)
+    IRunnerSession? runner = null,
+    string? repo = null)
 {
     /// <summary>Run the call belongs to; every tool event is attributed to it.</summary>
     public Guid RunId { get; } = runId;
+
+    /// <summary>
+    /// The run's target repository as <c>owner/name</c> (from the run request). GitHub tools bind to
+    /// this per run — M3 un-binds them from the single startup-configured repo — so a run acts on
+    /// the repo it was launched against, within the allowlist. Null only for contexts that predate a
+    /// repo (none in normal execution).
+    /// </summary>
+    public string? Repo { get; } = repo;
 
     /// <summary>Node whose declared tool list bounds this call.</summary>
     public string NodeId { get; } = nodeId;
