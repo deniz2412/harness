@@ -3,13 +3,13 @@
 **Bank-owned AI coding harness on Microsoft Agent Framework (.NET), running on Docker Desktop**
 **Companion to:** AI-Harness-Analysis-and-Plan.md, Internal-Harness-Build-Analysis.md,
 Harness-Product-Vision-Roadmap.md (long-term horizons beyond M4)
-**Date:** 23 Jul 2026 · **Status:** v2.6 — local MVP scope; **M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅
-complete and verified** (exit checks in `docs/m0-exit-check.md` … `docs/f1-exit-check.md`; reviews in
-`REVIEW.md`). M2's write path was demonstrated live (human-gated PR test-repo-harness#2); M3
-un-bound tooling to per-run repos behind a fail-closed allowlist; F1 shipped a Blazor Server
-operations console (run list, run/audit detail, gate approvals). Next: M4 (graduation) is the
-standing order, but it needs real infra — the practical fork is M4 vs the product-vision §6 packs
-(M5+), a human decision. Copies of this doc live in the repo at `harness/docs/` — keep both in sync.
+**Date:** 23 Jul 2026 · **Status:** v2.7 — local MVP scope; **M0–M3 ✅, F1 ✅, M5 ✅ complete and
+verified** (exit checks in `docs/m0-exit-check.md` … `docs/f1-exit-check.md`, `docs/m5-exit-check.md`;
+reviews in `REVIEW.md`). Highlights: M2's write path demonstrated live (human-gated PR
+test-repo-harness#2); M3 per-run repos behind a fail-closed allowlist; F1 a Blazor Server ops
+console; M5 the QA workflow pack (coverage-gap-analysis, regression-suite-author). **M4 (graduation
+to real infra) is deferred by the human;** next is the product-vision §6 packs — **M6 (security
+pack)**. Copies of this doc live in the repo at `harness/docs/` — keep both in sync.
 
 ---
 

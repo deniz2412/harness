@@ -45,8 +45,9 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅ — done and verified.** Exit checks in `docs/m0-exit-check.md` …
-`docs/m3-exit-check.md`, `docs/f1-exit-check.md`; review gates in `REVIEW.md`.
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅ — done and verified.** (M4 graduation deferred by the human.)
+Exit checks in `docs/m0-exit-check.md` … `docs/m3-exit-check.md`, `docs/f1-exit-check.md`,
+`docs/m5-exit-check.md`; review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -71,12 +72,19 @@ Docs (in-repo, canonical for this codebase):
   (the one write, a gate decision); the run-start/gate logic was extracted from `Program.cs` so the
   API and UI share one fail-closed path. Demonstrated live (screenshots). 312 offline tests.
 
-**Next: M4 — decide & (maybe) graduate** is the standing order after F1, but M4 is a
-graduation/decision milestone (OpenShift, Vault, SIEM, SSO) that needs real infra, accounts and
-spend — a hard human checkpoint, and likely out of scope for this local PoC. The natural
-continuation here is the **product-vision §6 packs (M5 QA, M6 security, …)**, which are workflow
-packs (YAML + analyzer images) in the PoC's spirit. Do NOT start either without explicit go-ahead —
-present the M4-vs-M5 fork to the human.
+- **M5** shipped the **QA workflow pack** as pure data (no C#): `coverage-gap-analysis` (deterministic
+  `dotnet test --collect` coverage measurement via a pinned `coverlet.collector` in the sandbox →
+  agent triages the cobertura gap → authors passing characterization tests → human gate → PR) and
+  `regression-suite-author` (a thorough characterization suite for one module). Demonstrated live to
+  the gate (25% coverage, DiscountEngine 0% → tests authored → green). All four write workflows are
+  now catalog-membership + structure validated offline. 312 tests.
+
+**Next: M6 — security workflow pack** is the natural continuation (product-vision §6, same pattern
+as M5: deterministic scanners → AI triage → gated PR). M4 (graduation to real infra) is deferred by
+the human. Do NOT start M6 without explicit go-ahead. M6's scanners (dependency-audit, secrets-sweep,
+sast-triage, threat-model-draft) are **defensive and repo-scoped** — they run pinned analyzer tooling
+in the sandbox, same subprocess-vs-container deviation as M2/M5, and may need new allowlisted analyzer
+programs (a curated platform change, not ad hoc).
 
 Open residuals later milestones should weigh (tracked in `REVIEW.md`/`docs/threat-model.md`): no API
 auth + caller-supplied initiator (F1), runner egress (F11, closes with the container runner),
@@ -84,10 +92,12 @@ least-privilege DB role (F4), and token/cost never populated on audit events (A7
 shows 0 until it is wired).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **M4 — decide & (maybe) graduate:** retire/keep Archon, or lift to real infra (OpenShift, Vault,
-  SIEM, SSO). Real-infra checkpoint.
-- **Vision horizons (product-vision §6):** M5 QA pack, M6 security pack, M7 team ownership + agent
-  registry (M7b) + MCP connectors (M7c), F2–F4 (catalog/authoring/dashboards), M9+ business packs.
+- **M6 — security pack** (product-vision §3/§6): `dependency-audit`, `secrets-sweep`, `sast-triage`,
+  `threat-model-draft` — defensive, repo-scoped; deterministic scanners → AI triage → gated PR.
+- **Vision horizons (product-vision §6):** M7 team ownership + org policy floor (`policy.yaml`) +
+  agent registry (M7b) + MCP connectors (M7c), F2–F4 (catalog/authoring/dashboards), M9+ business packs.
+- **M4 — deferred:** graduation to real infra (OpenShift, Vault, SIEM, SSO). Real-infra checkpoint,
+  taken up when the platform graduates off the workstation.
 
 ## Conventions
 - .NET 8, nullable enabled, file-scoped namespaces, primary constructors where natural.

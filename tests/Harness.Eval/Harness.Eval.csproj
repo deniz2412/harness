@@ -4,9 +4,12 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
-    <!-- Read-only reference: lets the harness load the shipped write-path workflows through the
-         real loader, so a broken prompt_ref or bad gate value is caught offline, not on a run. -->
+    <!-- Read-only references: load the shipped write-path workflows through the real loader (Engine)
+         and check every tool a workflow names is in the curated catalog (Policy) — both offline, so
+         a broken prompt_ref, bad gate value, unknown node kind, or invented tool is caught here, not
+         only at runtime. -->
     <ProjectReference Include="../../src/Harness.Engine/Harness.Engine.csproj" />
+    <ProjectReference Include="../../src/Harness.Policy/Harness.Policy.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="fixtures/**/*.json" CopyToOutputDirectory="PreserveNewest" />

@@ -168,18 +168,18 @@ rather than beta-testing it.
 
 | Milestone | Content | Status |
 |---|---|---|
-| M0 | Walking skeleton — pr-review end-to-end, audited | ✅ (final verification in progress) |
-| M1 | Governance hardening — gates, secret ruleset, migrations, budgets | next |
-| M2 | Write path — agent-loop/bash/gate, test-generation, issue-to-pr, eval harness | planned |
-| M3 | Multi-repo & search — per-run tooling, repo allowlist, read-only search | planned |
-| **F1** | Operations console (runs, audit viewer, gate approvals) | after M2, parallel with M3 |
-| **M5** | QA workflow pack — coverage-gap, regression-author + analyzer runner images | new |
-| **M6** | Security workflow pack — dependency-audit, secrets-sweep, sast-triage, threat-model-draft | new |
-| **M7** | Team workflow namespaces + org policy floor (policy.yaml validation) | new |
+| M0 | Walking skeleton — pr-review end-to-end, audited | ✅ done |
+| M1 | Governance hardening — gates, secret ruleset, migrations, budgets | ✅ done |
+| M2 | Write path — agent-loop/bash/gate, test-generation, issue-to-pr, eval harness | ✅ done (live gated PR) |
+| M3 | Multi-repo & search — per-run tooling, repo allowlist, read-only search | ✅ done |
+| **F1** | Operations console (runs, audit viewer, gate approvals) | ✅ done (Blazor Server) |
+| **M5** | QA workflow pack — coverage-gap, regression-author + analyzer runner images | ✅ done |
+| **M6** | Security workflow pack — dependency-audit, secrets-sweep, sast-triage, threat-model-draft | **next** |
+| **M7** | Team workflow namespaces + org policy floor (policy.yaml validation) | planned |
 | **F2–F3** | Catalog/launcher, then authoring workbench | after M7 (F3 needs the policy floor) |
 | **M7b** | Named agent registry — first-class, team-owned agent definitions (`agent_ref`) | with M7/F3 |
 | **M7c** | MCP connector layer — mount external MCP servers as allowlisted toolsets (§5a) | after M7 |
-| M4/M8 | Graduation — real infra (OpenShift, Vault, SIEM, SSO), multi-team operation | last |
+| M4/M8 | Graduation — real infra (OpenShift, Vault, SIEM, SSO), multi-team operation | deferred (last) |
 | **F4** | Dashboards + (optional) visual builder | last |
 | **M9+** | Business workflow packs (compliance, risk, IT ops, knowledge) — §5b, post-graduation only | horizon |
 

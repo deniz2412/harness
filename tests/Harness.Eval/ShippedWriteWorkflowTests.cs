@@ -1,4 +1,5 @@
 using Harness.Engine;
+using Harness.Policy;
 using Xunit;
 
 namespace Harness.Eval;
@@ -84,6 +85,31 @@ public class ShippedWriteWorkflowTests
         // open_pr is the terminal write; nothing may depend on the PR-opening node.
         var openPr = Assert.Single(wf.Nodes, n => n.Tools.Contains("github.open_pr"));
         Assert.DoesNotContain(wf.Nodes, n => n.DependsOn.Contains(openPr.Id));
+    }
+
+    // The loader validates ids/depends_on/prompt_ref/gate but NOT node kinds or tool names — those
+    // only fail-closed at runtime (executor dispatch / the ToolRegistry switch / the catalog). For a
+    // data-only milestone that is too late: catch an invented tool or an unknown kind here, offline.
+    private static readonly string[] KnownKinds = ["agent", "agent-loop", "bash", "gate"];
+
+    [Theory]
+    [InlineData("pr-review")]
+    [InlineData("test-generation")]
+    [InlineData("issue-to-pr")]
+    [InlineData("coverage-gap-analysis")]
+    [InlineData("regression-suite-author")]
+    public void Every_node_kind_is_known_and_every_tool_is_in_the_curated_catalog(string name)
+    {
+        var wf = Loader().Load(name);
+        var catalog = ToolCatalog.Default;
+
+        foreach (var node in wf.Nodes)
+        {
+            Assert.Contains(node.Kind, KnownKinds);
+            foreach (var tool in node.Tools)
+                Assert.True(catalog.TryGetTool(tool, out _),
+                    $"'{name}' node '{node.Id}' names tool '{tool}', which is not in the curated catalog.");
+        }
     }
 
     [Fact]

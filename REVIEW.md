@@ -5,6 +5,43 @@ milestone; newest first.
 
 ---
 
+## M5 — QA workflow pack (2026-07-23)
+
+Independent review gate audited the full M5 diff `3d95fd0..HEAD` (2 workflows + 7 prompts + 1 test
+file, no other source touched). Verdict: **shippable as-is, no MAJORs, zero scope creep.** All seven
+invariants hold; the headline M5 invariant (workflows-as-data) holds strictly — no C#, no new node
+kind, no new tool. The two riskiest areas were checked and are correct: the **characterization
+discipline** (both authoring prompts direct the agent to assert the code's *actual* behaviour and
+surface a suspected bug as a `SUSPECT:` note rather than assert an idealized value that would loop
+forever — the exact fix for the M2 never-green contradiction) and the **gate-before-push ordering**
+(both workflows place a human gate between the authoring loop and the open-pr node, enforced by
+`depends_on`). Detection is genuinely deterministic (a real `dotnet test --collect` coverage
+measurement with pinned `coverlet.collector` 6.0.2), and the agent triages the cobertura report
+rather than inventing numbers. Demonstrated live to the gate (25% coverage / DiscountEngine 0% →
+authored tests → green → paused).
+
+### MINOR — fixed
+
+- **M5-min-1 — offline load tests didn't assert catalog membership.** The loader validates
+  ids/depends_on/prompt_ref/gate but not node kinds or tool names, so an invented tool/kind would
+  only fail at runtime. **Fixed**: `ShippedWriteWorkflowTests` now asserts every node kind is known
+  and every tool a workflow names is in `ToolCatalog.Default`, across all five shipped workflows —
+  caught offline, not on a run.
+
+### MINORS — carried as tracked residuals
+
+- **M5-min-2 — `github: open_pr+issues` grants an unused "issues" sub-capability.** Both QA
+  workflows declare it (consistent with `test-generation`) though neither uses an issue tool. It is
+  the minimal lattice rung that permits `open_pr`/`push_branch` (there is no `open_pr`-without-issues
+  level), so it is not genuinely over-broad — noted for when the lattice is refined.
+- **M5-min-3 (pre-existing) — gate-before-write is a data+test guarantee, not engine-structural.**
+  Applies to these two new workflows as to the M2 ones; belongs to the M7 `policy.yaml` floor.
+- **Coverage-artifact cleanliness** — the `coverage/` output dir would have been committed into the
+  PR; fixed in-milestone by adding `coverage/` + `**/TestResults/` to `.gitignore` in the
+  enable-coverage step.
+
+---
+
 ## F1 — Operations console (2026-07-23)
 
 Independent review gate audited the full F1 diff `3e30ddb..HEAD`. Verdict: **shippable as-is, no
