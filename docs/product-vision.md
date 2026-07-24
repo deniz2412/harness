@@ -311,7 +311,7 @@ every service's PR is written against the same standards, so multi-repo changes 
 | **F1** | Operations console (runs, audit viewer, gate approvals) | ✅ done (Blazor Server) |
 | **M5** | QA workflow pack — coverage-gap, regression-author + analyzer runner images | ✅ done |
 | **M6** | Security workflow pack — dependency-audit, secrets-sweep, threat-model-draft (sast-triage deferred) | ✅ done (3 of 4; deps-audit + secrets-sweep live, threat-model gated-PR demo deferred on credits) |
-| **M7** | Team workflow namespaces + org policy floor (policy.yaml validation) | **next** |
+| **M7** | Team workflow namespaces + org policy floor (policy.yaml validation) | ✅ done (override + floor validation live without the gateway; boot-sweep enforced; full pr-review regression deferred on credits) |
 | **F2–F3** | Catalog/launcher, then authoring workbench | after M7 (F3 needs the policy floor) |
 | **M7b** | Named agent registry — first-class, team-owned agent definitions (`agent_ref`) | with M7/F3 |
 | **M7c** | MCP connector layer — mount external MCP servers as allowlisted toolsets (§5a) | after M7 |

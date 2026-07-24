@@ -5,6 +5,51 @@ milestone; newest first.
 
 ---
 
+## M7 — Team namespaces + org policy floor (2026-07-24)
+
+Independent review gate audited the full M7 diff `a9a08c1..HEAD` (3 new engine files + 3 test files +
+policy.yaml + an example team workflow/prompt; 6 modified shared files). Verdict: **no MAJORs, no
+invariant violation, zero scope creep.** All seven invariants hold: M7 adds only resolution
+(`WorkflowCatalog`) and validation (`PolicyFloor`/`PolicyFloorValidator`) C# plus YAML/MD data — no new
+node kind, no new tool, the floor only *restricts* (its `allowed_tools` is a strict subset of the
+platform catalog and cannot grant a capability). Fail-closed throughout: a malformed/missing
+`policy.yaml`, negative budget, malformed repo entry, or blank tool name throws at load and stops
+startup; empty `allowed_tools` is deny-all; unresolvable/traversal workflow names throw before
+touching disk; a **boot-time sweep** validates every shipped workflow against the floor and refuses to
+start on any violation; the floor is enforced at `POST /runs` and re-checked against the *current*
+floor on resume. The team-override mechanic is correct — the resolved name is pinned as `run.Workflow`
+so a resume re-loads the identical file, never falling back to the default. Demonstrated live without
+the gateway: `team=payments` resolved to the `teams/payments/pr-review` override, no team to the flat
+default, an unknown workflow to a fail-closed 400.
+
+### MINORS — fixed
+
+- **M7-min-1 — `DecideAsync` loaded the paused run's workflow unwrapped.** If a team removed its
+  namespaced override file while a run was paused, resume threw an unhandled exception (HTTP 500)
+  rather than a clean refusal. (Pre-existing pattern that M7 slightly widened.) **Fixed**: the resume
+  load now maps a vanished/invalid definition to `DefinitionChanged` (409) — fail-closed, no resume,
+  nothing recorded.
+- **M7-min-2 — the resume floor-block path had no test.** `DecideAsync`'s new `PolicyFloorViolation`
+  branch was uncovered. **Fixed**: added `DecideAsync_returns_PolicyFloorViolation_when_the_current_
+  floor_rejects_on_resume` (a paused run whose workflow the current floor now denies is refused).
+
+### MINORS — carried as tracked residuals
+
+- **M7-min-3 — `max_run_budget_usd` is inert.** The floor validates it for well-formedness (negative
+  rejected) but nothing enforces it against a run — `WorkflowDefinition` has no budget dimension and
+  the validator checks only tool-ceiling + gate. Matches the documented "advisory, gateway-side
+  enforcement" stance; ties to the A7/F8 token/cost residual.
+- **M7-min-4 — `WorkflowCatalog.EnumerateAll` dedups a flat file shadowed by a same-named default.**
+  A default and a flat of the same name share the `(name, team=null)` key, so only one surfaces —
+  unlike the team-vs-default override pair, which correctly surfaces both. `EnumerateAll` is
+  tooling-only (not on the run path) and no `defaults/` dir exists yet, so this is inert; the doc
+  comment slightly overstates that override pairs always both appear.
+- **Live pr-review-completion regression deferred** on gateway credit exhaustion (spend checkpoint).
+  M7 changes only the pre-execution path; a real pr-review run was shown created + resolved correctly.
+- **`team` is an unauthenticated caller claim** until API auth (F1), same trust model as `initiator`.
+
+---
+
 ## M6 — Security workflow pack (2026-07-23)
 
 Independent review gate audited the full M6 diff `c522554..HEAD` (3 workflows + 6 prompts + the

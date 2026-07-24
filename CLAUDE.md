@@ -45,10 +45,10 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4; see below) — done and verified.**
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅ — done and verified.**
 (M4 graduation deferred by the human.) Exit checks in `docs/m0-exit-check.md` …
-`docs/m3-exit-check.md`, `docs/f1-exit-check.md`, `docs/m5-exit-check.md`, `docs/m6-exit-check.md`;
-review gates in `REVIEW.md`.
+`docs/m3-exit-check.md`, `docs/f1-exit-check.md`, `docs/m5-exit-check.md`, `docs/m6-exit-check.md`,
+`docs/m7-exit-check.md`; review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -94,11 +94,26 @@ review gates in `REVIEW.md`.
   the offline eval. 338 tests. **`sast-triage` (the 4th named M6 workflow) is explicitly deferred** —
   it would be a fourth instance of the proven pattern needing a pinned SAST analyzer in the runner.
 
-**Next: M7 — team workflow namespaces + org policy floor** (`policy.yaml` validated at load time;
-product-vision §4/§6). M4 (graduation to real infra) is deferred by the human. Do NOT start M7
-without explicit go-ahead. Two M6 tails remain open: `threat-model-draft`'s live PR (needs an
-Anthropic credit top-up — a spend checkpoint) and the `sast-triage` descope (build it or leave
-descoped). Both are documentation-clean, not blockers.
+- **M7** shipped **team workflow namespaces + an org policy floor** as resolution/validation C# plus
+  data (no new node kind): `policy.yaml` (org ceiling — allowed tools, repo allowlist, "any
+  open_pr/push_branch needs a human gate upstream", budget cap) validated against every workflow at
+  **load time**; a fail-closed `PolicyFloor`/`PolicyFloorValidator` (deny-all on empty, throws on any
+  malformed field); a back-compat `WorkflowCatalog` resolving `teams/<team>/<name>` → `defaults/<name>`
+  → flat `<name>` (a same-named team file overrides the default, no files moved); a boot-time sweep
+  that refuses to start if any shipped workflow violates the floor; enforcement at `POST /runs` and on
+  resume (re-checked against the current floor). The run stores the **resolved** name so a resume
+  re-loads the identical file. **Demonstrated live without the gateway:** `team=payments` resolved to
+  the `teams/payments/pr-review` override, no team to the flat default, unknown workflow to a 400; the
+  boot sweep validated all 9 shipped workflows. `team` is a caller claim until auth (F1). 397 tests.
+  Full live pr-review-*completion* regression deferred on gateway credit exhaustion (M7 changes only
+  the pre-execution path).
+
+**Next: M7b — named agent registry** (`agents/<name>.yaml`, referenced via `agent_ref`; first-class
+team-owned agents validated against the policy floor; product-vision §4/§6, lands with M7/F3). M4
+(graduation to real infra) is deferred by the human. Do NOT start M7b without explicit go-ahead. Open
+tails: M6's `threat-model-draft` live PR + M7's live pr-review-completion regression both need an
+Anthropic **credit top-up** (a spend checkpoint); M6's `sast-triage` stays descoped. All are
+documentation-clean, not blockers.
 
 Open residuals later milestones should weigh (tracked in `REVIEW.md`/`docs/threat-model.md`): no API
 auth + caller-supplied initiator (F1), runner egress (F11, closes with the container runner),
@@ -106,10 +121,12 @@ least-privilege DB role (F4), and token/cost never populated on audit events (A7
 shows 0 until it is wired).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **M7 — team ownership + org policy floor** (product-vision §4/§6): `workflows/teams/<team>/*.yaml`
-  namespaces + a `policy.yaml` per org/team (allowed tools, repo allowlists, gate requirements,
-  budget caps) that the engine validates every workflow against at load time — teams author freely
-  within an org-set ceiling. Agent registry (M7b) + MCP connectors (M7c) land alongside.
+- **M7b — named agent registry** (product-vision §4/§6): make agents first-class — define
+  `agents/<name>.yaml` once (persona prompt, allowed tools, model tier, output schema) and reference
+  it from any workflow via `agent_ref: <name>`; team-owned, namespaced, PR-reviewed, and validated
+  against the M7 policy floor. Agents stay bounded to runs — no standing autonomous agents.
+- **M7c — MCP connector layer** (product-vision §5a): mount external MCP servers as namespaced,
+  allowlisted toolsets (config + review, not code); unreviewed servers never attach to write agents.
 - **Vision horizons (product-vision §6):** F2–F4 (catalog/authoring/dashboards), M9+ business packs.
 - **M4 — deferred:** graduation to real infra (OpenShift, Vault, SIEM, SSO). Real-infra checkpoint,
   taken up when the platform graduates off the workstation.
