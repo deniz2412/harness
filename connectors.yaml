@@ -1,0 +1,17 @@
+# M7c MCP connector layer — the declared external toolsets the platform may mount, and the
+# per-operation allowlist that governs each. A toolset becomes available by being declared here
+# (config + review), never ad hoc. Rules the loader enforces fail-closed:
+#   - namespace is a single lowercase identifier and must NOT shadow a built-in (github/repo/codesearch);
+#   - only the listed operations may be mounted (a tool is <namespace>.<operation>);
+#   - write_capable defaults false — a read-only connector's tools may never attach to a write-capable
+#     node (a node whose ceiling grants repo: write-worktree or github: open_pr+issues).
+# In this PoC the transport is an in-process stub; a real MCP client (JSON-RPC over stdio/SSE) drops in
+# behind IMcpConnector without changing any workflow. Every mounted operation is wrapped by AuditedTool
+# exactly like a built-in, so it is policed (pre/post scan) and audited per call.
+connectors:
+  - namespace: docs
+    description: Internal knowledge-base search (stub connector; read-only).
+    write_capable: false
+    operations:
+      - search
+      - get_page

@@ -1,0 +1,27 @@
+# M7c demonstrator: a PR review that also consults an internal knowledge base through a MOUNTED MCP
+# connector (docs.search) alongside the built-in read tools. docs.search is a declared connector
+# operation (connectors.yaml), within the org floor (policy.yaml), and read-only — it may attach here
+# because this workflow is read-only (no write ceiling). Ends at a review comment; no write tool, no
+# human gate. Every docs.search call is audited and policy-scanned like any built-in tool.
+name: pr-review-with-context
+description: Review a PR with internal knowledge-base context via the docs MCP connector.
+permissions: { repo: read, github: comment }
+nodes:
+  - id: gather
+    kind: agent
+    prompt_ref: pr-review/gather.md
+    tools: [repo.read, github.pr_diff, codesearch.query, docs.search]
+
+  - id: review
+    kind: agent
+    depends_on: [gather]
+    prompt_ref: pr-review/review.md
+    tools: [repo.read, docs.search]
+    output_schema: schemas/review-findings.json
+
+  - id: post
+    kind: agent
+    depends_on: [review]
+    gate: auto
+    prompt_ref: pr-review/post.md
+    tools: [github.pr_comment]

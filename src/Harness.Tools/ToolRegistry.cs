@@ -12,8 +12,15 @@ namespace Harness.Tools;
 /// </summary>
 public sealed class ToolRegistry(
     GitHubToolsetFactory githubFactory, IReadOnlyCollection<string> repoAllowlist,
-    RepoToolset repo, PolicyPipeline policy, AuditEmitter audit)
+    RepoToolset repo, PolicyPipeline policy, AuditEmitter audit,
+    IReadOnlyDictionary<string, IMcpConnector>? connectors = null)
 {
+    // M7c: declared external toolsets, keyed by namespace (empty ⇒ none mounted, the fail-closed
+    // default). The composition root builds these from connectors.yaml; a real MCP client swaps in
+    // behind IMcpConnector without changing this class.
+    private readonly IReadOnlyDictionary<string, IMcpConnector> _connectors =
+        connectors ?? new Dictionary<string, IMcpConnector>();
+
     public IList<AITool> Resolve(ToolCallContext ctx)
     {
         var tools = new List<AITool>();
@@ -45,6 +52,23 @@ public sealed class ToolRegistry(
     /// </summary>
     private AIFunction Build(string name, ToolCallContext ctx)
     {
+        // M7c: a declared connector tool (namespace.operation) mounts via its IMcpConnector. The
+        // per-tool policy check (connector allowlist + write-capable boundary) already ran in Resolve
+        // via policy.AssertToolAllowed, and the AuditedTool wrapper there logs + scans every call — so
+        // a mounted op is governed and audited exactly like a built-in. The connector's advertised
+        // Operations are a fail-closed second gate. Built-ins fall through (their reserved namespaces
+        // are never declared connectors, so the lookup misses).
+        if (McpConnectorRegistry.TryParseToolName(name, out var ns, out var op)
+            && ns is not null && op is not null
+            && _connectors.TryGetValue(ns, out var connector))
+        {
+            if (!connector.Operations.Any(o => string.Equals(o, op, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException($"Connector '{ns}' does not serve operation '{op}'.");
+            return AIFunctionFactory.Create(
+                (string argumentsJson) => connector.InvokeAsync(op, argumentsJson, CancellationToken.None),
+                $"{ns}_{op}", $"MCP {ns}.{op} (external toolset, mounted via the connector layer).");
+        }
+
         var scoped = RepoFor(ctx);   // per-run worktree for write workflows; shared root otherwise
         // Per-run GitHub binding (M3): the toolset targets the run's own repo, not a single
         // startup-configured one. Built lazily, only when a github.* tool is actually resolved — a

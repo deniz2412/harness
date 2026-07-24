@@ -59,13 +59,22 @@ public class ShippedWriteWorkflowTests
         // catalog). For data workflows that is too late: catch an invented tool or kind here.
         var wf = Loader().Load(name);
         var catalog = ToolCatalog.Default;
+        // M7c: a tool is valid if it is a curated built-in OR a declared MCP connector operation
+        // (config+review, governed by the connector allowlist rather than the code catalog).
+        var connectors = McpConnectorRegistry.FromFile(Path.Combine(RepoRoot(), "connectors.yaml"));
 
         foreach (var node in wf.Nodes)
         {
             Assert.Contains(node.Kind, KnownKinds);
             foreach (var tool in node.Tools)
-                Assert.True(catalog.TryGetTool(tool, out _),
-                    $"'{name}' node '{node.Id}' names tool '{tool}', which is not in the curated catalog.");
+            {
+                var isBuiltin = catalog.TryGetTool(tool, out _);
+                var isConnector = McpConnectorRegistry.TryParseToolName(tool, out var ns, out var op)
+                                  && connectors.IsAllowed(ns, op);
+                Assert.True(isBuiltin || isConnector,
+                    $"'{name}' node '{node.Id}' names tool '{tool}', which is neither a curated catalog "
+                    + "tool nor a declared connector operation.");
+            }
         }
     }
 

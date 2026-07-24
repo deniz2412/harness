@@ -22,6 +22,8 @@ services:
       - ../policy.yaml:/app/policy.yaml:ro
       # M7b named agent registry: agents/<name>.yaml (+ teams/<team>/ overrides), resolved via agent_ref.
       - ../agents:/app/agents:ro
+      # M7c MCP connector layer: declares which external toolsets may be mounted + their per-op allowlist.
+      - ../connectors.yaml:/app/connectors.yaml:ro
       - audit-payloads:/data/audit-payloads
       - worktrees:/data/worktrees
     # service_started is not enough for postgres: EnsureCreated() runs at boot with no retry, so

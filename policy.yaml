@@ -28,6 +28,10 @@ allowed_tools:
   - repo.list             # list files in the run's worktree
   - repo.write_worktree   # write a file inside the run's isolated worktree
   - codesearch.query      # search the worktree for a term
+  # M7c: a mounted MCP connector operation (namespace.operation). Connector tools are governed by the
+  # connector allowlist (connectors.yaml) + the write-capable boundary rather than the code catalog,
+  # but the org floor still gates whether a workflow may name them — so they are listed here too.
+  - docs.search           # internal knowledge-base search (docs connector, read-only)
 
 # The repositories the platform is permitted to target. Shape: `owner/name` (exact) or `owner/*`
 # (any repo under that owner). deniz2412/* covers the test owner used throughout the PoC.

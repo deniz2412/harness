@@ -40,9 +40,24 @@ builder.Services.AddSingleton(new GatewayOptions
     CheapModel = cfg["Gateway:CheapModel"]!,
     StrongModel = cfg["Gateway:StrongModel"]!
 });
+// M7c MCP connector layer: the config-declared, allowlisted external toolsets the platform may mount.
+// Loaded once, fail-fast on a malformed connectors.yaml (an ABSENT file is fine — it means no
+// connectors declared). The registry governs which namespaced operations may be mounted and the
+// write-capable boundary; StubMcpConnector stands in for a real MCP client (a documented drop-in
+// behind IMcpConnector — no network/subprocess egress in the PoC). Every mounted op is wrapped by
+// AuditedTool exactly like a built-in, so it is policed and audited per call.
+var connectorRegistry = McpConnectorRegistry.FromFile(paths["Connectors"]!);
+var mountedConnectors = connectorRegistry.Connectors.ToDictionary(
+    c => c.Namespace,
+    c => (IMcpConnector)new StubMcpConnector(c.Namespace, c.Operations),
+    // Case-insensitive to match how McpConnectorRegistry/PolicyPipeline compare namespaces, so a name
+    // the pre-tool check admits can never then miss the mount and fall through to "unknown tool".
+    StringComparer.OrdinalIgnoreCase);
+builder.Services.AddSingleton(connectorRegistry);
 // Constructing this compiles the embedded secret ruleset and tool catalog: a malformed policy
-// layer stops the process here rather than permitting everything at runtime.
-builder.Services.AddSingleton<PolicyPipeline>();
+// layer stops the process here rather than permitting everything at runtime. The connector registry
+// makes the pre-tool check govern connector tools too (allowlist + write-capable boundary).
+builder.Services.AddSingleton(new PolicyPipeline(SecretScanner.Default, ToolCatalog.Default, connectorRegistry));
 builder.Services.AddSingleton(sp => new AuditEmitter(
     sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>(), paths["AuditPayloads"]!));
 builder.Services.AddSingleton<IAuditLog>(sp =>
@@ -118,7 +133,8 @@ builder.Services.AddSingleton(sp => new ToolRegistry(
     sp.GetRequiredService<RepoAllowlist>().Entries,   // search is confined to the allowlist
     sp.GetRequiredService<RepoToolset>(),
     sp.GetRequiredService<PolicyPipeline>(),
-    sp.GetRequiredService<AuditEmitter>()));
+    sp.GetRequiredService<AuditEmitter>(),
+    mountedConnectors));                              // M7c: declared external toolsets, mounted per namespace
 
 // The write-path sandbox (M2): a per-run worktree the write nodes act in. Subprocess-backed for
 // the local PoC — a container drop-in replaces it behind IRunnerFactory at graduation. The token

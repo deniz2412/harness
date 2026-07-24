@@ -10,20 +10,31 @@ namespace Harness.Policy;
 /// </remarks>
 public sealed class PolicyPipeline
 {
-    /// <summary>Production pipeline: the embedded ruleset and the curated catalog.</summary>
-    public PolicyPipeline() : this(SecretScanner.Default, ToolCatalog.Default) { }
+    /// <summary>Production pipeline: the embedded ruleset and the curated catalog. No MCP connectors
+    /// declared (fail-closed default — connector tools are mounted only when the composition root
+    /// injects a registry loaded from connectors.yaml).</summary>
+    public PolicyPipeline() : this(SecretScanner.Default, ToolCatalog.Default, McpConnectorRegistry.Empty()) { }
 
-    /// <summary>Explicit pipeline, for tests and for future per-tenant rulesets.</summary>
+    /// <summary>Explicit pipeline, for tests and for future per-tenant rulesets. No MCP connectors.</summary>
     public PolicyPipeline(SecretScanner scanner, ToolCatalog catalog)
+        : this(scanner, catalog, McpConnectorRegistry.Empty()) { }
+
+    /// <summary>Explicit pipeline with a declared MCP connector registry (M7c).</summary>
+    public PolicyPipeline(SecretScanner scanner, ToolCatalog catalog, McpConnectorRegistry connectors)
     {
         Scanner = scanner ?? throw new ArgumentNullException(nameof(scanner));
         Catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        Connectors = connectors ?? throw new ArgumentNullException(nameof(connectors));
     }
 
     public SecretScanner Scanner { get; }
 
     /// <summary>The curated tool catalog: tool name → required (scope, level).</summary>
     public ToolCatalog Catalog { get; }
+
+    /// <summary>The declared MCP connector registry (M7c): the config-level allowlist that governs
+    /// namespaced external toolsets, distinct from the code-level curated catalog.</summary>
+    public McpConnectorRegistry Connectors { get; }
 
     /// <summary>
     /// Everything bound for the model, and everything about to be written externally, passes
@@ -78,6 +89,27 @@ public sealed class PolicyPipeline
         if (!nodeTools.Any(t => string.Equals(t?.Trim(), name, StringComparison.OrdinalIgnoreCase)))
             throw new PolicyViolationException(stage, $"tool '{name}' is not declared on this node");
 
+        // M7c: a namespaced connector tool (e.g. docs.search) is governed by the connector allowlist
+        // and the write-capable boundary — the sanctioned config+review extension path (vision §5a) —
+        // NOT the curated built-in catalog. Built-in tools (github.*, repo.*, codesearch.*) fall
+        // through to the catalog path below: their namespaces are reserved and can never be a declared
+        // connector, so IsDeclared is false for them and there is no collision.
+        if (McpConnectorRegistry.TryParseToolName(name, out var cns, out var cop)
+            && Connectors.IsDeclared(cns))
+        {
+            if (!Connectors.IsAllowed(cns, cop))
+                throw new PolicyViolationException(
+                    stage, $"connector tool '{name}' is not in connector '{cns}' operation allowlist");
+            // The write-capable boundary: a read-only connector's tools must never attach to a
+            // write-capable node — an unreviewed/read-only server never rides alongside write
+            // capability. Fail-closed.
+            if (IsWriteCapableCeiling(workflowPermissions) && !Connectors.IsWriteCapable(cns))
+                throw new PolicyViolationException(
+                    stage,
+                    $"connector '{cns}' is not write-capable and cannot attach to a write-capable node");
+            return;   // governed by the connector layer; the built-in catalog/ceiling checks do not apply
+        }
+
         // 2. In the curated catalog (invariant 7): unknown ⇒ deny.
         if (!Catalog.TryGetTool(name, out var entry))
             throw new PolicyViolationException(
@@ -120,6 +152,26 @@ public sealed class PolicyPipeline
                 stage,
                 $"tool '{name}' requires '{scope.Name}: {entry.Level}' but the workflow ceiling is " +
                 $"'{scope.Name}: {ceilingLevel}'");
+    }
+
+    /// <summary>
+    /// M7c write-capable boundary: a node is write-capable when its ceiling grants a write level in the
+    /// lattice — <c>repo: write-worktree</c> or <c>github: open_pr+issues</c> (the two write frontiers;
+    /// there is no level above them, invariant 1). A read-only connector's tools may not attach to such
+    /// a node. Ranks come from the catalog, so this tracks the lattice rather than hard-coding it.
+    /// </summary>
+    private bool IsWriteCapableCeiling(IReadOnlyDictionary<string, string> permissions) =>
+        permissions is not null
+        && (GrantsAtLeast(permissions, "repo", "write-worktree")
+            || GrantsAtLeast(permissions, "github", "open_pr+issues"));
+
+    private bool GrantsAtLeast(IReadOnlyDictionary<string, string> permissions, string scopeName, string level)
+    {
+        if (!TryGetCeiling(permissions, scopeName, out var ceiling)) return false;
+        if (!Catalog.TryGetScope(scopeName, out var scope)) return false;
+        var need = scope.Rank(level);
+        var have = scope.Rank(ceiling);
+        return need >= 0 && have >= need;
     }
 
     /// <summary>Ceiling lookup is case-insensitive; workflow YAML is hand-written.</summary>
