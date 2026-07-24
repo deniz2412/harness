@@ -5,6 +5,43 @@ milestone; newest first.
 
 ---
 
+## M6 — Security workflow pack (2026-07-23)
+
+Independent review gate audited the full M6 diff `c522554..HEAD` (3 workflows + 6 prompts + the
+runner Dockerfile/allowlist + 1 test file; +405/−71). Verdict: **no MAJORs, no invariant violation,
+zero scope creep into M7/vision territory.** All seven invariants hold: no merge/repo-create tool and
+`github.open_pr` is terminal (`threat-model-draft.yaml`, nothing `depends_on: [open-pr]`); the two
+analysis workflows end at `github.pr_comment` (`gate: auto`) while `threat-model-draft`'s `open-pr`
+node is downstream of a `gate: human`/`approvers: [initiator]` node; every agent prompt keeps the
+untrusted-content instruction; writes reuse the existing audited tool path; the diff is YAML + prompts
++ a pinned binary + one allowlist word + tests (no new C#, no new node kind); every tool named is in
+the catalog. The gitleaks pin was verified byte-for-byte against the official 8.18.4 `linux_x64`
+checksum. Demonstrated live: `dependency-audit` found the planted High CVE and `secrets-sweep` ran
+clean and reported honestly (both posted PR comments).
+
+### MINORS — carried as tracked residuals
+
+- **M6-min-1 — `sast-triage` not delivered (3 of the 4 named M6 workflows shipped).** Reconciled by
+  **explicit descope**: the three delivered packs already exercise all three shapes of the M6 pattern
+  (auto-gated comment ×2, human-gated PR ×1), so `sast-triage` would be a fourth instance of a proven
+  pattern (it needs a pinned SAST analyzer added to the runner image + allowlist — a curated platform
+  change, invariant 7). Docs (CLAUDE.md, design-spec §5, product-vision §6) now state 3-of-4 with
+  `sast-triage` deferred, so the source of truth no longer over-claims.
+- **M6-min-2 — `threat-model-draft` live gated-PR demo deferred on gateway credit exhaustion.** The
+  run failed mid-`draft` on a `strong`-model call when the gateway returned Anthropic's *"credit
+  balance is too low"* (HTTP 400). This **failed fail-closed**: run → `Failed`, **no branch and no PR
+  leaked** (verified), and the gate-decision endpoint correctly refused (`409 not awaiting approval`).
+  The workflow's human-gate-before-`open_pr` structure is verified statically here and by the offline
+  eval; only the live witness of the PR is pending a credit top-up (human spend checkpoint).
+- **M6-min-3 (nit) — inconsistent leading U+FEFF BOM** across some prompt files (`secrets-sweep`,
+  `threat-model-draft` have it; `dependency-audit` does not). Harmless (hashed consistently, ignored
+  by the model); cosmetic only.
+- **F11 egress (pre-existing) — `dependency-audit`'s `dotnet list package --vulnerable` reaches the
+  NuGet advisory DB.** Runner egress is the tracked graduation residual, not M6-specific; noted for
+  completeness. Analyzer isolation remains a subprocess sandbox, not a container.
+
+---
+
 ## M5 — QA workflow pack (2026-07-23)
 
 Independent review gate audited the full M5 diff `3d95fd0..HEAD` (2 workflows + 7 prompts + 1 test

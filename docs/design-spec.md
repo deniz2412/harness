@@ -3,13 +3,15 @@
 **Bank-owned AI coding harness on Microsoft Agent Framework (.NET), running on Docker Desktop**
 **Companion to:** AI-Harness-Analysis-and-Plan.md, Internal-Harness-Build-Analysis.md,
 Harness-Product-Vision-Roadmap.md (long-term horizons beyond M4)
-**Date:** 23 Jul 2026 · **Status:** v2.7 — local MVP scope; **M0–M3 ✅, F1 ✅, M5 ✅ complete and
-verified** (exit checks in `docs/m0-exit-check.md` … `docs/f1-exit-check.md`, `docs/m5-exit-check.md`;
-reviews in `REVIEW.md`). Highlights: M2's write path demonstrated live (human-gated PR
-test-repo-harness#2); M3 per-run repos behind a fail-closed allowlist; F1 a Blazor Server ops
-console; M5 the QA workflow pack (coverage-gap-analysis, regression-suite-author). **M4 (graduation
-to real infra) is deferred by the human;** next is the product-vision §6 packs — **M6 (security
-pack)**. Copies of this doc live in the repo at `harness/docs/` — keep both in sync.
+**Date:** 23 Jul 2026 · **Status:** v2.8 — local MVP scope; **M0–M3 ✅, F1 ✅, M5 ✅, M6 ✅ complete and
+verified** (exit checks in `docs/m0-exit-check.md` … `docs/f1-exit-check.md`, `docs/m5-exit-check.md`,
+`docs/m6-exit-check.md`; reviews in `REVIEW.md`). Highlights: M2's write path demonstrated live
+(human-gated PR test-repo-harness#2); M3 per-run repos behind a fail-closed allowlist; F1 a Blazor
+Server ops console; M5 the QA workflow pack; M6 the security pack (dependency-audit found a real High
+CVE, secrets-sweep clean — both live; threat-model-draft's gated-PR demo deferred on gateway credit
+exhaustion, having failed fail-closed with no PR leaked; `sast-triage` explicitly deferred, 3 of 4).
+**M4 (graduation to real infra) is deferred by the human;** next is **M7 (team namespaces + org
+policy floor)**. Copies of this doc live in the repo at `harness/docs/` — keep both in sync.
 
 ---
 
