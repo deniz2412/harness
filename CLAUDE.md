@@ -45,10 +45,10 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅ — done and verified.**
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅ — done and verified.**
 (M4 graduation deferred by the human.) Exit checks in `docs/m0-exit-check.md` …
 `docs/m3-exit-check.md`, `docs/f1-exit-check.md`, `docs/m5-exit-check.md`, `docs/m6-exit-check.md`,
-`docs/m7-exit-check.md`; review gates in `REVIEW.md`.
+`docs/m7-exit-check.md`, `docs/m7b-exit-check.md`; review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -108,12 +108,27 @@ Docs (in-repo, canonical for this codebase):
   Full live pr-review-*completion* regression deferred on gateway credit exhaustion (M7 changes only
   the pre-execution path).
 
-**Next: M7b — named agent registry** (`agents/<name>.yaml`, referenced via `agent_ref`; first-class
-team-owned agents validated against the policy floor; product-vision §4/§6, lands with M7/F3). M4
-(graduation to real infra) is deferred by the human. Do NOT start M7b without explicit go-ahead. Open
-tails: M6's `threat-model-draft` live PR + M7's live pr-review-completion regression both need an
-Anthropic **credit top-up** (a spend checkpoint); M6's `sast-triage` stays descoped. All are
-documentation-clean, not blockers.
+- **M7b** shipped the **named agent registry** as resolution/merge C# + data (no new node kind):
+  `AgentDefinition` + `AgentLoader` + `AgentCatalog` (an exact mirror of the M7 workflow catalog,
+  rooted at `agents/`); a node references a named agent via `agent_ref` instead of inlining
+  prompt/tools/model_tier/output_schema (mutually exclusive with them). `WorkflowLoader` resolves the
+  ref, merges the agent onto the node (so executors run unchanged), and folds the agent's content into
+  the workflow sha so a run pins the exact agent (agent-less shas stay byte-identical to pre-M7b).
+  `AgentInvoker.ModelFor` now honors the declared tier (node-id heuristic is the fallback). Agents are
+  team-namespaced with override (agent scope follows workflow scope, so resume needs no persisted
+  team); the boot sweep resolves `agent_ref` workflows and validates every agent against the floor.
+  **Demonstrated live without the gateway:** `pr-security-review` resolved the default agent,
+  `team=payments` resolved the team workflow + payments agent, the two runs' shas differed (different
+  agent pinned). 442 tests. Full live pr-security-review-completion run deferred on gateway credit
+  exhaustion (pre-execution path only).
+
+**Next: M7c — MCP connector layer** (product-vision §5a): mount external MCP servers as namespaced,
+allowlisted toolsets (config + review, not code); team-supplied servers go through an approval flow;
+unreviewed servers never attach to write-capable agents; every mounted operation logged per call. M4
+(graduation to real infra) is deferred by the human. Do NOT start M7c without explicit go-ahead. Open
+tails: M6's `threat-model-draft` live PR + M7's pr-review-completion + M7b's pr-security-review-
+completion regressions all need an Anthropic **credit top-up** (a spend checkpoint); M6's
+`sast-triage` stays descoped. All are documentation-clean, not blockers.
 
 Open residuals later milestones should weigh (tracked in `REVIEW.md`/`docs/threat-model.md`): no API
 auth + caller-supplied initiator (F1), runner egress (F11, closes with the container runner),
@@ -121,12 +136,10 @@ least-privilege DB role (F4), and token/cost never populated on audit events (A7
 shows 0 until it is wired).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **M7b — named agent registry** (product-vision §4/§6): make agents first-class — define
-  `agents/<name>.yaml` once (persona prompt, allowed tools, model tier, output schema) and reference
-  it from any workflow via `agent_ref: <name>`; team-owned, namespaced, PR-reviewed, and validated
-  against the M7 policy floor. Agents stay bounded to runs — no standing autonomous agents.
 - **M7c — MCP connector layer** (product-vision §5a): mount external MCP servers as namespaced,
-  allowlisted toolsets (config + review, not code); unreviewed servers never attach to write agents.
+  allowlisted toolsets, declared in config with an explicit per-operation allowlist (config + review,
+  not code); team-supplied servers go through a vendor/supply-chain approval flow; unreviewed servers
+  never attach to write-capable agents; every mounted operation is logged per call like a built-in.
 - **Vision horizons (product-vision §6):** F2–F4 (catalog/authoring/dashboards), M9+ business packs.
 - **M4 — deferred:** graduation to real infra (OpenShift, Vault, SIEM, SSO). Real-infra checkpoint,
   taken up when the platform graduates off the workstation.

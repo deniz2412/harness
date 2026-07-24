@@ -313,7 +313,7 @@ every service's PR is written against the same standards, so multi-repo changes 
 | **M6** | Security workflow pack — dependency-audit, secrets-sweep, threat-model-draft (sast-triage deferred) | ✅ done (3 of 4; deps-audit + secrets-sweep live, threat-model gated-PR demo deferred on credits) |
 | **M7** | Team workflow namespaces + org policy floor (policy.yaml validation) | ✅ done (override + floor validation live without the gateway; boot-sweep enforced; full pr-review regression deferred on credits) |
 | **F2–F3** | Catalog/launcher, then authoring workbench | after M7 (F3 needs the policy floor) |
-| **M7b** | Named agent registry — first-class, team-owned agent definitions (`agent_ref`) | with M7/F3 |
+| **M7b** | Named agent registry — first-class, team-owned agent definitions (`agent_ref`) | ✅ done (agent_ref resolution + agent-pinned sha + team overrides live without the gateway; full run deferred on credits) |
 | **M7c** | MCP connector layer — mount external MCP servers as allowlisted toolsets (§5a) | after M7 |
 | **T1** | Inline PR line comments — `github.pr_review_comment` (line-anchored), catalog tool, `pr-review` upgraded to post per-line findings + a summary | small, do anytime (see below) |
 | **P0** | Engine primitives — interactive refinement loop (`interactive`/revise-with-feedback) + `handoff` node kind (gated, capped) | after M2; enables P1–P3 |

@@ -5,6 +5,48 @@ milestone; newest first.
 
 ---
 
+## M7b — Named agent registry (2026-07-24)
+
+Independent review gate audited the full M7b diff `ec79d26..HEAD` (3 new engine files + 3 test files +
+2 agents + 2 prompts + 2 workflows; 8 modified shared files). Verdict: **no MAJORs, no correctness bug,
+no invariant violation, zero scope creep** (no MCP/M7c, no standing agents, no UI). All seven
+invariants hold: agents are data (YAML+MD), no new node kind; `model_tier` names a gateway group only;
+both agent prompts carry the untrusted-content guard; agents name only floored, catalogued read tools;
+the registry adds no tool and no write path. Fail-closed throughout — a bad model tier, a
+missing/escaping prompt, an unresolved `agent_ref`, a workflow that references agents with no registry
+configured, or `agent_ref` set together with inline prompt/tools/tier/schema all throw at load; the
+boot sweep resolves every `agent_ref` workflow and validates every agent against the floor, refusing to
+start on any violation. The reviewer specifically confirmed the **sha-fold is clean**: an agent's
+prompt that is also a node prompt collapses to one tag-keyed entry (no double-count), and an
+agent-less workflow's sha is **byte-identical to pre-M7b** (no pin regression). A referenced agent is
+pinned in the run sha (different agent ⇒ different sha), and a team workflow's `agent_ref` resolves the
+team's agent override, deterministically on resume from the stored workflow name. Demonstrated live
+without the gateway: `pr-security-review` resolved the default agent, `team=payments` resolved the team
+workflow + payments agent, and the two runs' shas differed.
+
+### MINOR — fixed
+
+- **M7b-min-1 — `output_schema` was outside the agent_ref/inline mutual-exclusion.** A node could set
+  `agent_ref` and still override the agent's `output_schema` (merge used `??=`), contradicting the doc
+  that says the agent fully defines the node. **Fixed**: `output_schema` is now part of the
+  mutual-exclusion check and the merge is unconditional — `agent_ref` fully owns the node's agent
+  config (prompt, tools, tier, schema).
+
+### MINORS — carried as tracked residuals
+
+- **M7b-min-2 — team agent override fires only through a team-namespaced workflow.** Agent scope
+  follows workflow scope: a `team=X` run of a workflow that has no `teams/X/` override resolves the
+  flat workflow (stored without a team prefix), so `TeamOf` returns null and the org-default agent is
+  used. This is deliberate — it makes resume deterministic with no persisted team field — but it is a
+  non-obvious consequence, now documented in the exit check.
+- **M7b-min-3 — the `agents/defaults/` layer is coded and tested but unused.** `AgentCatalog` fully
+  supports the Default scope (mirroring `WorkflowCatalog`); only flat + team agents ship. Dead-but-
+  consistent, not a defect — it activates when an org adopts the `defaults/` split.
+- **Live pr-security-review-completion run deferred** on gateway credit exhaustion (spend checkpoint);
+  M7b's registry mechanics are demonstrated live.
+
+---
+
 ## M7 — Team namespaces + org policy floor (2026-07-24)
 
 Independent review gate audited the full M7 diff `a9a08c1..HEAD` (3 new engine files + 3 test files +
