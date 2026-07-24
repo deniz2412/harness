@@ -45,10 +45,10 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅ — done and verified.**
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅, M7c ✅ — done and verified.**
 (M4 graduation deferred by the human.) Exit checks in `docs/m0-exit-check.md` …
 `docs/m3-exit-check.md`, `docs/f1-exit-check.md`, `docs/m5-exit-check.md`, `docs/m6-exit-check.md`,
-`docs/m7-exit-check.md`, `docs/m7b-exit-check.md`; review gates in `REVIEW.md`.
+`docs/m7-exit-check.md`, `docs/m7b-exit-check.md`, `docs/m7c-exit-check.md`; review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -122,13 +122,26 @@ Docs (in-repo, canonical for this codebase):
   agent pinned). 442 tests. Full live pr-security-review-completion run deferred on gateway credit
   exhaustion (pre-execution path only).
 
-**Next: M7c — MCP connector layer** (product-vision §5a): mount external MCP servers as namespaced,
-allowlisted toolsets (config + review, not code); team-supplied servers go through an approval flow;
-unreviewed servers never attach to write-capable agents; every mounted operation logged per call. M4
-(graduation to real infra) is deferred by the human. Do NOT start M7c without explicit go-ahead. Open
-tails: M6's `threat-model-draft` live PR + M7's pr-review-completion + M7b's pr-security-review-
-completion regressions all need an Anthropic **credit top-up** (a spend checkpoint); M6's
-`sast-triage` stays descoped. All are documentation-clean, not blockers.
+- **M7c** shipped the **MCP connector layer** as governance C# + config + an in-process stub transport
+  (no new node kind): `McpConnectorRegistry` (fail-closed `connectors.yaml` — declared namespaces, per-
+  operation allowlist, `write_capable` flag; reserved built-in namespaces can't be shadowed; absent
+  file = mount nothing); `IMcpConnector` + `StubMcpConnector` (deterministic, no egress — the real MCP
+  stdio/SSE client is a drop-in behind the interface). `PolicyPipeline.AssertToolAllowed` governs a
+  declared `<ns>.<op>` tool by the connector allowlist + the write-capable boundary (a read-only
+  connector never attaches to a `repo:write-worktree`/`github:open_pr+issues` node) instead of the code
+  catalog; `ToolRegistry` mounts the op via its connector, still wrapped in `AuditedTool` so every call
+  is scanned + audited like a built-in. **Demonstrated:** offline `ConnectorMountTests` pin
+  mount→invoke→audit + the three fail-closed refusals; in-container the boot sweep loads the
+  `docs.search` workflow and a run is created. 505 tests. Full live connector-invocation run deferred on
+  gateway credit exhaustion.
+
+**Next: F2 — workflow catalog & launcher** (product-vision §5): browse the catalog + team workflows
+(parsed from YAML), workflow detail (DAG rendered from `depends_on`, permissions, gates), a launch form
+(repo/PR/issue/team params), run history + success rates per workflow. A frontend increment on the F1
+console; mostly reads existing data. M4 (graduation to real infra) is deferred by the human. Do NOT
+start F2 without explicit go-ahead. Open tails: M6's `threat-model-draft` live PR + M7/M7b/M7c
+completion runs all need an Anthropic **credit top-up** (a spend checkpoint); M6's `sast-triage` stays
+descoped. All are documentation-clean, not blockers.
 
 Open residuals later milestones should weigh (tracked in `REVIEW.md`/`docs/threat-model.md`): no API
 auth + caller-supplied initiator (F1), runner egress (F11, closes with the container runner),
@@ -136,11 +149,11 @@ least-privilege DB role (F4), and token/cost never populated on audit events (A7
 shows 0 until it is wired).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **M7c — MCP connector layer** (product-vision §5a): mount external MCP servers as namespaced,
-  allowlisted toolsets, declared in config with an explicit per-operation allowlist (config + review,
-  not code); team-supplied servers go through a vendor/supply-chain approval flow; unreviewed servers
-  never attach to write-capable agents; every mounted operation is logged per call like a built-in.
-- **Vision horizons (product-vision §6):** F2–F4 (catalog/authoring/dashboards), M9+ business packs.
+- **F2 — workflow catalog & launcher** (product-vision §5): browse catalog + team workflows, workflow
+  detail (DAG from `depends_on`, permissions, gates), a launch form, run history + success rates.
+- **F3 — authoring workbench** (product-vision §5): YAML editor with schema + policy-floor checks
+  before commit, dry-run (validate + render DAG), PR-based publishing to a team namespace.
+- **Vision horizons (product-vision §6):** F4 (dashboards/visual builder), M9+ business packs.
 - **M4 — deferred:** graduation to real infra (OpenShift, Vault, SIEM, SSO). Real-infra checkpoint,
   taken up when the platform graduates off the workstation.
 

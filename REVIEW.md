@@ -5,6 +5,49 @@ milestone; newest first.
 
 ---
 
+## M7c — MCP connector layer (2026-07-24)
+
+Independent review gate audited the full M7c diff `6b4f20d..HEAD` (2 new engine files + a stub + 4 test
+files + connectors.yaml + a workflow; 7 modified shared files). Verdict: **no MAJORs, no invariant
+violation, zero scope creep.** All seven invariants hold — most importantly invariant 7, which
+explicitly anticipates this connector layer as the sanctioned "config + review" extension path. The
+reviewer verified the governance crux directly: `AssertToolAllowed` branches to the connector path only
+for a *declared* namespace (allowlist + write-boundary, catalog/ceiling skipped), while built-ins parse
+to reserved namespaces (`github`/`repo`/`codesearch`) that can never be declared, so they fall through
+to the catalog with no collision; the org floor still gates whether a workflow may *name* a connector
+tool (`docs.search` is in `policy.yaml`), and `ShippedWriteWorkflowTests` was made **additive**, not
+weakened. The write-capable boundary was checked against the lattice (write frontiers `repo:
+write-worktree` / `github: open_pr+issues`) with exact pass/throw inputs. Every mounted op is wrapped in
+`AuditedTool` in `Resolve`, so it is scanned + audited (`tool_call`/`tool_result`) per call like a
+built-in — no `AuditedTool` change needed. Fail-closed throughout: malformed/reserved/absent config,
+un-allowlisted op, undeclared namespace, and a read-only connector on a write node all deny. Mount +
+invoke + audit + the three refusals are pinned deterministically offline (`ConnectorMountTests`); the
+shipped-config governance + floor by `ConnectorLayerTests`.
+
+### MINOR — fixed
+
+- **M7c-min-1 — case-sensitivity mismatch between the policy and mount layers.** The registry/policy
+  compared namespaces case-insensitively but the mount dictionary + op lookup were ordinal, so a name
+  like `Docs.search` would pass `AssertToolAllowed` then miss the mount and throw "unknown tool"
+  (fail-closed, and unreachable via the lowercase shipped config). **Fixed**: the mount dictionary is
+  now `OrdinalIgnoreCase` and the op lookup is case-insensitive, so a name the pre-tool check admits
+  can never then miss the mount.
+
+### MINORS — carried as tracked residuals
+
+- **M7c-min-2 — the write-capable boundary is the two write *frontiers*, not `comment`.** A read-only
+  connector may ride alongside the low-risk, auto-gated `github.pr_comment` (the `pr-review-with-context`
+  demonstrator does exactly this). Deliberate — and necessary for a read-only review to use a connector
+  — and the connector's untrusted output is still scanned + audited; noted so a future reviewer does not
+  read "never attach to a write-capable agent" as narrower than intended.
+- **The transport is an in-process stub.** A real MCP client (stdio/SSE) is the deferred drop-in behind
+  `IMcpConnector`; a real external server introduces network egress (F11) + a vendor approval flow —
+  graduation-era, out of PoC scope.
+- **The full live connector-invocation run is deferred** on gateway credit exhaustion (spend
+  checkpoint); the mount + audit + governance are pinned offline.
+
+---
+
 ## M7b — Named agent registry (2026-07-24)
 
 Independent review gate audited the full M7b diff `ec79d26..HEAD` (3 new engine files + 3 test files +
