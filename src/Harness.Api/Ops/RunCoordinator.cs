@@ -32,6 +32,8 @@ public sealed class DagWorkflowRunner(DagExecutor dag) : IWorkflowRunner
 /// </summary>
 public sealed class RunCoordinator(
     WorkflowLoader loader,
+    WorkflowCatalog catalog,
+    PolicyFloorValidator floor,
     IWorkflowRunner runner,
     IRunStore runs,
     AuditEmitter audit,
@@ -43,7 +45,7 @@ public sealed class RunCoordinator(
     private readonly ILogger _log = loggerFactory.CreateLogger("Harness.Run");
 
     public async Task<StartOutcome> StartAsync(
-        string workflow, string repo, int? pr, int? issue, string? initiator,
+        string workflow, string repo, int? pr, int? issue, string? initiator, string? team = null,
         CancellationToken ct = default)
     {
         // Fail-closed, before anything is created or any tool runs: a run may only target a repo the
@@ -53,20 +55,39 @@ public sealed class RunCoordinator(
             return new StartOutcome(StartStatus.RepoNotAllowlisted,
                 Error: $"Repository '{repo}' is not allowlisted. Add it to RepoAllowlist to run against it.");
 
+        // M7 team namespaces: resolve (workflow, team) to the concrete definition — a same-named team
+        // file under workflows/teams/<team>/ overrides the org default. The RESOLVED name is what the
+        // run stores and pins its sha to, so a resume re-loads the identical file (the override picked
+        // at start is not re-decided). `team` is a caller claim until there is auth (threat model F1),
+        // exactly like `initiator`.
+        string resolved;
         WorkflowDefinition wf;
         try
         {
-            wf = loader.Load(workflow);
+            resolved = catalog.ResolveName(workflow, team);
+            wf = loader.Load(resolved);
         }
-        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or ArgumentException)
         {
-            // A workflow that fails validation is a bad request, not a server fault.
+            // A workflow that will not resolve or fails validation is a bad request, not a server fault.
             return new StartOutcome(StartStatus.BadWorkflow, Error: ex.Message);
+        }
+
+        // M7 org policy floor: the resolved workflow must fit inside the org ceiling (allowed tools,
+        // a human gate upstream of any gated write). Fail-closed BEFORE the run is created — a
+        // workflow that steps outside the floor never starts.
+        try
+        {
+            floor.EnsureCompliant(wf);
+        }
+        catch (PolicyFloorException pfx)
+        {
+            return new StartOutcome(StartStatus.PolicyFloorBlocked, Error: pfx.Message);
         }
 
         var run = new Run
         {
-            Workflow = workflow,
+            Workflow = resolved,          // the resolved (possibly team-namespaced) definition name
             WorkflowSha = wf.Sha,          // the definition + prompts this run actually executed
             Initiator = initiator ?? "local",
             Repo = repo, PullRequest = pr, Issue = issue
@@ -99,9 +120,32 @@ public sealed class RunCoordinator(
         // definition the human acted on. If the workflow or a prompt changed while the run was
         // paused, the decision was made about something else — refuse before recording it, so a
         // stale run is refused, not half-run.
-        var wf = loader.Load(run.Workflow);
+        WorkflowDefinition wf;
+        try
+        {
+            wf = loader.Load(run.Workflow);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException)
+        {
+            // The definition this run paused on is gone or no longer valid — e.g. a team removed its
+            // namespaced override file while the run was paused. Treat it as a definition change: the
+            // decision does not carry over. Fail-closed — no resume, no write, nothing recorded.
+            return GateOutcome.DefinitionChanged;
+        }
         if (!string.Equals(wf.Sha, run.WorkflowSha, StringComparison.Ordinal))
             return GateOutcome.DefinitionChanged;
+
+        // Resuming re-executes the DAG, so re-check the org policy floor against the CURRENT policy —
+        // if the floor was tightened while the run was paused (the workflow-sha is unchanged, so the
+        // sha guard above does not catch it), a now-non-compliant workflow must not resume.
+        try
+        {
+            floor.EnsureCompliant(wf);
+        }
+        catch (PolicyFloorException)
+        {
+            return GateOutcome.PolicyFloorViolation;
+        }
 
         try
         {

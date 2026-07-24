@@ -1,0 +1,45 @@
+# policy.yaml — the org policy FLOOR (the M7 ceiling).
+#
+# This is the organisation-wide ceiling every workflow the platform loads is validated against,
+# at load time, before it is allowed to run. It is fail-closed: a workflow that names a tool the
+# floor does not allow, targets a repo outside the allowlist, uses a gated write tool without a
+# human gate upstream, or declares a budget above the cap, is REJECTED — the run never starts.
+#
+# Teams author freely WITHIN this ceiling. A team may namespace its own workflow under
+# workflows/teams/<team>/<name>.yaml (a same-named file overrides the org default for that team),
+# but the team variant is validated against exactly this floor like any other workflow — a team
+# can tighten its own workflows, never loosen the org ceiling.
+#
+# Keys are parsed with the UnderscoredNamingConvention (allowed_tools, repo_allowlist, ...).
+
+# The full tool ceiling. This is the union of every tool named by every shipped workflow
+# (pr-review, test-generation, issue-to-pr, coverage-gap-analysis, regression-suite-author,
+# dependency-audit, secrets-sweep, threat-model-draft), each of which is a member of the curated
+# tool catalog (src/Harness.Policy/Rules/tool-catalog.yaml). A tool absent from this list is
+# denied even if the catalog contains it — the floor is a subset of the catalog, never a superset.
+# There is deliberately no merge or repo create/delete tool here; there is no such tool anywhere.
+allowed_tools:
+  - github.pr_diff        # read a PR's unified diff
+  - github.get_issue      # read a GitHub issue
+  - github.pr_comment     # post ONE review comment on a PR (the analysis workflows end here)
+  - github.push_branch    # commit the worktree onto a new branch and push it (gated write)
+  - github.open_pr        # open a PR from a pushed branch (gated write; the workflow ends here)
+  - repo.read             # read a file from the run's worktree
+  - repo.list             # list files in the run's worktree
+  - repo.write_worktree   # write a file inside the run's isolated worktree
+  - codesearch.query      # search the worktree for a term
+
+# The repositories the platform is permitted to target. Shape: `owner/name` (exact) or `owner/*`
+# (any repo under that owner). deniz2412/* covers the test owner used throughout the PoC.
+repo_allowlist:
+  - deniz2412/*
+
+# Write tools that, when a workflow uses them, REQUIRE a human gate somewhere upstream of the node
+# that uses them. These are the two externally-visible write operations; a workflow that pushes a
+# branch or opens a PR must route through `gate: human` first (the M2 fail-closed write contract).
+gate_requirements:
+  - github.open_pr
+  - github.push_branch
+
+# The per-run cost ceiling in USD. A workflow (or run) whose budget exceeds this is rejected.
+max_run_budget_usd: 5.00

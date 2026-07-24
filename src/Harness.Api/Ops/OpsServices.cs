@@ -49,7 +49,8 @@ public interface IRunCoordinator
     /// <summary>Creates a run and starts it in the background. Fail-closed: the repo must be
     /// allowlisted, the workflow must load. Returns the created run, or a reason it was refused.</summary>
     Task<StartOutcome> StartAsync(
-        string workflow, string repo, int? pr, int? issue, string? initiator, CancellationToken ct = default);
+        string workflow, string repo, int? pr, int? issue, string? initiator, string? team = null,
+        CancellationToken ct = default);
 
     /// <summary>Records a human gate decision and resumes the run. Fail-closed: the run must be
     /// awaiting approval, still target an allowlisted repo, and match the workflow-sha it paused
@@ -61,7 +62,7 @@ public interface IRunCoordinator
 /// <summary>Result of <see cref="IRunCoordinator.StartAsync"/>.</summary>
 public sealed record StartOutcome(StartStatus Status, Run? Run = null, string? Error = null);
 
-public enum StartStatus { Started, RepoNotAllowlisted, BadWorkflow }
+public enum StartStatus { Started, RepoNotAllowlisted, BadWorkflow, PolicyFloorBlocked }
 
 /// <summary>Result of <see cref="IRunCoordinator.DecideAsync"/> — maps to HTTP status and to a UI
 /// message. Kept as an enum so both callers translate one closed set of outcomes.</summary>
@@ -74,4 +75,5 @@ public enum GateOutcome
     DefinitionChanged,
     GateNotFound,
     AlreadyDecided,
+    PolicyFloorViolation,
 }

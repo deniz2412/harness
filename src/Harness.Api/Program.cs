@@ -53,6 +53,30 @@ builder.Services.AddSingleton<IApprovalStore>(sp => new EfApprovalStore(
     sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>(),
     sp.GetRequiredService<AuditEmitter>()));
 builder.Services.AddSingleton(sp => new WorkflowLoader(paths["Workflows"]!, paths["Prompts"]!));
+
+// M7 org policy floor: the ceiling every workflow — org default or team-namespaced — must fit inside
+// (allowed tools, a human gate upstream of any gated write, repo allowlist, budget cap). Loaded once,
+// fail-fast: a malformed or missing policy.yaml throws here and stops startup, the same posture as the
+// secret ruleset and RepoAllowlist. Enforced on the run path (POST /runs and resume) via the validator.
+var policyFloor = PolicyFloor.FromFile(paths["Policy"]!);
+builder.Services.AddSingleton(policyFloor);
+builder.Services.AddSingleton(sp => new PolicyFloorValidator(sp.GetRequiredService<PolicyFloor>()));
+// M7 team namespaces: resolves workflows/teams/<team>/<name> → defaults/<name> → flat <name>, so a
+// team's same-named file overrides the org default without moving any files (product-vision §4).
+builder.Services.AddSingleton(sp => new WorkflowCatalog(paths["Workflows"]!));
+
+// Boot-time fail-closed sweep: hold every workflow the platform ships to the floor. If any shipped
+// default or team workflow steps outside the ceiling, the process refuses to start — the violation is
+// caught here, not at the first run that happens to trigger it. Mirrors the offline eval guarantee.
+{
+    var bootLoader = new WorkflowLoader(paths["Workflows"]!, paths["Prompts"]!);
+    var bootValidator = new PolicyFloorValidator(policyFloor);
+    foreach (var file in Directory.EnumerateFiles(paths["Workflows"]!, "*.yaml", SearchOption.AllDirectories))
+    {
+        var name = Path.GetRelativePath(paths["Workflows"]!, file)[..^".yaml".Length].Replace('\\', '/');
+        bootValidator.EnsureCompliant(bootLoader.Load(name));
+    }
+}
 // M3 un-bound the tools from a single startup repo: which repo a run targets now comes from the
 // request (validated against the allowlist below), so GitHub:Owner/Repo config is no longer the
 // source of truth. The token is still required.
@@ -118,7 +142,8 @@ builder.Services.AddSingleton<IRunQueries>(sp => new RunQueries(
 builder.Services.AddSingleton<IWorkflowRunner>(sp => new DagWorkflowRunner(
     sp.GetRequiredService<DagExecutor>()));
 builder.Services.AddSingleton<IRunCoordinator>(sp => new RunCoordinator(
-    sp.GetRequiredService<WorkflowLoader>(), sp.GetRequiredService<IWorkflowRunner>(),
+    sp.GetRequiredService<WorkflowLoader>(), sp.GetRequiredService<WorkflowCatalog>(),
+    sp.GetRequiredService<PolicyFloorValidator>(), sp.GetRequiredService<IWorkflowRunner>(),
     sp.GetRequiredService<IRunStore>(), sp.GetRequiredService<AuditEmitter>(),
     sp.GetRequiredService<PolicyPipeline>(), sp.GetRequiredService<RepoAllowlist>(),
     sp.GetRequiredService<IApprovalStore>(), sp.GetRequiredService<ILoggerFactory>()));
@@ -145,12 +170,13 @@ using (var scope = app.Services.CreateScope())
 app.MapPost("/runs", async (RunRequest req, IRunCoordinator coordinator, CancellationToken ct) =>
 {
     var outcome = await coordinator.StartAsync(
-        req.Workflow, req.Repo, req.Pr, req.Issue, req.Initiator, ct);
+        req.Workflow, req.Repo, req.Pr, req.Issue, req.Initiator, req.Team, ct);
     return outcome.Status switch
     {
         StartStatus.Started => Results.Accepted(
             $"/runs/{outcome.Run!.Id}", new { outcome.Run.Id, outcome.Run.Status }),
-        _ => Results.BadRequest(new { error = outcome.Error }),   // RepoNotAllowlisted | BadWorkflow
+        // RepoNotAllowlisted | BadWorkflow | PolicyFloorBlocked — all caller-fixable bad requests.
+        _ => Results.BadRequest(new { error = outcome.Error }),
     };
 });
 
@@ -211,6 +237,11 @@ app.MapPost("/runs/{id:guid}/gates/{node}/decide", async (
             error = "The workflow definition changed while this run was paused; "
                   + "the decision does not carry over. Start a new run.",
         }),
+        GateOutcome.PolicyFloorViolation => Results.Conflict(new
+        {
+            error = "The org policy floor was tightened while this run was paused and the workflow "
+                  + "no longer satisfies it; the run cannot resume. Start a new run.",
+        }),
         _ => Results.Problem("Unhandled gate outcome."),
     };
 });
@@ -225,6 +256,7 @@ app.MapRazorComponents<Harness.Api.Components.App>().AddInteractiveServerRenderM
 
 app.Run();
 
-public sealed record RunRequest(string Workflow, string Repo, int? Pr, int? Issue, string? Initiator);
+public sealed record RunRequest(
+    string Workflow, string Repo, int? Pr, int? Issue, string? Initiator, string? Team = null);
 
 public sealed record GateDecisionRequest(bool Approve, string? Approver, string? Reason);

@@ -1,0 +1,37 @@
+name: pr-review
+description: >-
+  The PAYMENTS team's variant of pr-review. Same shape as the org-default pr-review (gather →
+  review → post, ending at a single PR comment), but the review step applies the payments team's
+  own standards — money-handling correctness, rounding and currency, and idempotency — via its own
+  prompt. A same-named team-namespaced workflow: it overrides the default pr-review for this team
+  while staying WITHIN the org policy floor (only floor-allowed tools; no write tool, so no human
+  gate is required — it is read-mostly and ends at a comment). Never merges, never pushes.
+permissions:
+  repo: read
+  github: comment
+nodes:
+  # 1. Gather PR context. Read-only. Reuses the org-default gather prompt — context gathering is
+  #    not team-specific; only the review judgement below is.
+  - id: gather
+    kind: agent
+    prompt_ref: pr-review/gather.md
+    tools: [github.pr_diff, repo.read, repo.list, codesearch.query]
+
+  # 2. Review through the payments team's lens (money correctness, rounding, currency, idempotency).
+  #    The team-owned prompt lives under prompts/teams/payments/ — this is the payments override.
+  - id: review
+    kind: agent
+    depends_on: [gather]
+    prompt_ref: teams/payments/review.md
+    tools: [repo.read]
+    output_schema: schemas/review-findings.json
+
+  # 3. Post ONE PR comment. Low-risk external write (a comment), auto-gated via the policy scan —
+  #    exactly like the org-default pr-review. No human gate, no push, no PR. Reuses the default
+  #    post prompt.
+  - id: post
+    kind: agent
+    depends_on: [review]
+    gate: auto
+    prompt_ref: pr-review/post.md
+    tools: [github.pr_comment]
