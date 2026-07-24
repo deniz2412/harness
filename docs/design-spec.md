@@ -324,6 +324,96 @@ no embeddings until ripgrep fails; gateway and scanners adopted, not authored.
 
 ---
 
+## 5c. Upstream SDLC & cascade orchestration (P-series — engine contract)
+
+Deferred until after M7/F3 (see `product-vision.md` §5c for the product narrative). Captured here as
+the **implementation contract** so the work is well-defined when it starts. Extends the harness
+upstream of code: analysis → stories → interactive spec → handoff to implementation, as a bounded,
+audited cascade of runs. Three additions to the engine, all built on existing seams.
+
+**(a) `T1` — inline line comments (small, independent, do anytime).**
+New catalog tool `github.pr_review_comment(file, line|position, body)` on top of the PR review API,
+optionally batched into a single `github.create_review(comments[])` submission. Draft-shaped,
+gate-eligible, curated addition (one method + registry entry + gate rule). `review-findings.json`
+already carries `file`/`line`, so `pr-review`'s `post` node maps its findings straight onto it.
+No engine change — tool layer only.
+
+**(b) `P0` — new engine primitives.**
+- **Interactive refinement loop.** Extend the gate/loop model with a third human path beyond
+  approve/reject: **revise**. Realized as a node mode `interactive: true` with `until: approved`,
+  where each iteration presents the current artifact, accepts free-text human feedback, and
+  re-runs the agent with that feedback appended — bounded by `max_iterations` and node budget.
+  On approval, the artifact's content hash is pinned into the audit trail (same mechanism as
+  workflow/prompt pinning). This is how `story-to-spec` converges.
+- **`handoff` node kind.** Upon reaching it, an *approved* run may spawn N downstream runs
+  (workflow + params per spawned run, produced by an upstream agent node as structured output
+  validated against a schema). New `Run` fields: `cascade_root_id`, `parent_run_id`, `depth`.
+  A spawned run is an ordinary run — no new persistence, no new trust boundary — that happens to
+  have a lineage.
+
+**(c) Cascade budget — the safety contract (enforced in `Harness.Engine`, configured in
+`policy.yaml`).**
+Caps carried on the cascade root and inherited by all descendants; a workflow may tighten but never
+loosen the org ceiling. Checked at every `handoff` **before** spawning; exceeding any cap halts
+fail-closed (invariant 2) and creates a human-continuation point.
+
+| Cap | Meaning | Suggested default |
+|---|---|---|
+| `max_depth` | handoff hops allowed in the chain | 2 |
+| `max_fanout` | downstream runs a single handoff may spawn | 5 |
+| `max_total_runs` | hard cap on runs in the whole cascade tree | 25 |
+| `cascade_budget_usd` | total spend across the tree; halt fail-closed when hit | small, tenant-set |
+| `gate_policy` | per boundary: `auto` \| `human` \| `human_over(N)` | tenant-set |
+
+Every spawn emits an audit event carrying `cascade_root_id`, `depth`, and remaining budget, so the
+whole tree is one traceable lineage. Default posture is conservative (tight caps, raise within the
+org ceiling); a bank tenant may pin `gate_policy: human` everywhere to reduce to the fully-gated
+model, a PoC tenant may run fully automatic within budget.
+
+**(d) `P1`–`P3` — the workflows/UI that ride on the above** (pure data + frontend, no further engine
+work): `epic-to-stories`/`story-refinement` (BA/SA → gated issues via `github.create_issue`),
+`story-to-spec` (interactive loop → docs-repo PR), and the flagship `story → spec → implementation`
+handoff with a UI intake + pipeline view. Write ceilings unchanged: analysis drafts issues, spec
+authoring drafts a docs PR, implementation ends at a PR — nothing files, assigns, or merges.
+
+**Invariant addendum (applies once P-series lands):** *Cascades are finite, budgeted, audited
+trees — never daemons.* Any handoff that cannot prove it is within the cascade budget must
+fail-closed rather than spawn.
+
+---
+
+## 5d. Knowledge base & multi-repo workspaces (K1/W1 — engine contract)
+
+Deferred (K1 pairs with M7; W1 needs M3 + P0). Product narrative in `product-vision.md` §5d.
+
+**K1 — knowledge sets (trusted context).**
+- `knowledge/<set>/*.md`, versioned + PR-reviewed. A `KnowledgeResolver` loads referenced sets and
+  the agent runner injects them into context as a **clearly delimited trusted block**, separate
+  from untrusted repo/issue content (invariant 4 stays intact — see new invariant below).
+- Referenced via `knowledge: [set, ...]` on a workflow or agent definition; sets are scoped
+  org/team/workspace under the M7 ownership model. Content hash pinned into the audit trail like
+  prompts.
+- Retrieval: ripgrep over the knowledge repo first; embeddings deferred; external corpora via M7c
+  connectors (read-only). Guidance only — hard rules live in `policy.yaml`, not here.
+
+**W1 — workspaces (multi-repo).**
+- A `Workspace` = named set of allowlisted repos + a bound knowledge set. New: `run.WorkspaceId`
+  as an alternative to `run.Repo`; `GitHubToolsetFactory` extends to serve any repo in the
+  workspace allowlist (M3's `RepoAllowlist` generalizes to a repo-group allowlist); one worktree
+  per repo per run.
+- Write ceiling: **one PR per affected repo**, each independently human-gated. No cross-repo atomic
+  operation; no merge. Per-repo permission ceilings still apply.
+- Cross-repo change = a workspace run that emits a `handoff` (P0) fanning out to per-repo
+  implementation runs, bounded by the cascade budget. The workspace knowledge set is what keeps the
+  per-repo PRs consistent.
+
+**New invariant (applies once K1 lands):** *Two context classes, never blurred.* Knowledge sets are
+a trusted instruction source (they pass the review gate); repo/issue content is untrusted. The
+agent runner must keep them in distinct, labeled context regions, and prompts must instruct the
+agent to treat only the knowledge block as authoritative guidance.
+
+---
+
 ## 6. Risks specific to this build
 
 - **Local runtime ≠ target runtime** → keep the seams honest: EF Core provider, audit sink

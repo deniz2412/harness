@@ -17,6 +17,9 @@ services:
       - ../workflows:/app/workflows:ro
       - ../prompts:/app/prompts:ro
       - ../schemas:/app/schemas:ro
+      # M7 org policy floor: the ceiling every workflow is validated against at load time. Read-only,
+      # same as the other declarative inputs — operator-owned, changed by reviewed PR.
+      - ../policy.yaml:/app/policy.yaml:ro
       - audit-payloads:/data/audit-payloads
       - worktrees:/data/worktrees
     # service_started is not enough for postgres: EnsureCreated() runs at boot with no retry, so
