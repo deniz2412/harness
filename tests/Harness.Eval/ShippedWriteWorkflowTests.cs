@@ -22,7 +22,8 @@ public class ShippedWriteWorkflowTests
     }
 
     private static WorkflowLoader Loader() =>
-        new(Path.Combine(RepoRoot(), "workflows"), Path.Combine(RepoRoot(), "prompts"));
+        new(Path.Combine(RepoRoot(), "workflows"), Path.Combine(RepoRoot(), "prompts"),
+            Path.Combine(RepoRoot(), "agents"));
 
     /// <summary>Every workflow shipped in workflows/ — discovered from disk so a new one is covered
     /// by the universal checks automatically, not only when someone remembers to add it here.</summary>

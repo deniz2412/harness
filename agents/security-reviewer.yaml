@@ -1,0 +1,12 @@
+# M7b named agent registry — the org-default security reviewer.
+# A first-class, reusable agent: its persona prompt, allowed tools, model tier and output schema are
+# defined here once and referenced from any workflow node via `agent_ref: security-reviewer`, instead
+# of being spelled out inline. Team-owned overrides live under agents/teams/<team>/. Every tool named
+# here is within the org policy floor (policy.yaml allowed_tools) — the loader and boot sweep enforce
+# that. Defensive, read-only: it proposes findings and opens nothing.
+name: security-reviewer
+description: Defensive, read-only security code reviewer (OWASP-oriented) that proposes findings only.
+prompt_ref: agents/security-reviewer.md
+tools: [repo.read, github.pr_diff, codesearch.query]
+model_tier: strong
+output_schema: schemas/review-findings.json

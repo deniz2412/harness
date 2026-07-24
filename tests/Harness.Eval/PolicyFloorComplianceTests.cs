@@ -33,7 +33,7 @@ public class PolicyFloorComplianceTests
     private static string PolicyPath() => Path.Combine(RepoRoot(), "policy.yaml");
 
     private static WorkflowLoader Loader() =>
-        new(WorkflowsRoot(), Path.Combine(RepoRoot(), "prompts"));
+        new(WorkflowsRoot(), Path.Combine(RepoRoot(), "prompts"), Path.Combine(RepoRoot(), "agents"));
 
     private static PolicyFloor Floor() => PolicyFloor.FromFile(PolicyPath());
 

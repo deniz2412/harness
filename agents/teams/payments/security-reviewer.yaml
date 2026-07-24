@@ -1,0 +1,10 @@
+# M7b team-owned agent override: the payments team's security reviewer. Same name as the org default
+# (security-reviewer), so a payments-namespaced workflow's `agent_ref: security-reviewer` resolves to
+# THIS definition instead of the org default (the Archon override pattern, mirrored for agents).
+# Read-only tools within the org floor; strong tier. Adds money-handling review emphasis via its prompt.
+name: security-reviewer
+description: Payments-team security reviewer — the org security review plus money-handling integrity.
+prompt_ref: teams/payments/security-reviewer.md
+tools: [repo.read, github.pr_diff, codesearch.query]
+model_tier: strong
+output_schema: schemas/review-findings.json

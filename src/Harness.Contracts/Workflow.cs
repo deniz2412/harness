@@ -24,11 +24,20 @@ public sealed class NodeDefinition
     /// <summary>agent | agent-loop | bash | gate</summary>
     public required string Kind { get; init; }
     public List<string> DependsOn { get; init; } = [];
-    public string? PromptRef { get; init; }
+    /// <summary>The node's persona prompt. Inline, OR populated by the loader from an <see cref="AgentRef"/>.
+    /// Settable so the loader can merge a resolved agent's prompt in (M7b).</summary>
+    public string? PromptRef { get; set; }
     public List<string> Tools { get; init; } = [];
+    /// <summary>M7b — reference a named agent from the registry (agents/&lt;name&gt;.yaml) instead of
+    /// spelling out prompt_ref/tools/model_tier inline. Mutually exclusive with those inline fields; the
+    /// loader resolves it and merges the agent's prompt, tools, tier and output schema into this node.</summary>
+    public string? AgentRef { get; init; }
+    /// <summary>M7b — the gateway model group for this node: cheap | strong. Inline, OR populated from an
+    /// agent. Null falls back to the node-id heuristic (AgentInvoker.ModelFor).</summary>
+    public string? ModelTier { get; set; }
     /// <summary>auto | human — writes require a gate.</summary>
     public string? Gate { get; init; }
-    public string? OutputSchema { get; init; }
+    public string? OutputSchema { get; set; }
     public string? Run { get; init; }              // bash nodes
     public string? Until { get; init; }            // agent-loop
     public int MaxIterations { get; init; } = 5;   // agent-loop bound

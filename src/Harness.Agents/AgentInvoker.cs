@@ -31,11 +31,18 @@ internal static class AgentInvoker
     }
 
     /// <summary>
-    /// Model tiering, config-driven, never hardcoded models: the cheap tier for the gather/plan
-    /// reconnaissance nodes, the strong tier for review/implement work.
+    /// Model tiering, config-driven, never hardcoded models. M7b: a node's declared tier wins — set
+    /// inline or merged from a referenced agent (cheap|strong → the gateway model groups). When no tier
+    /// is declared (null), fall back to the original node-id heuristic: cheap for the gather/plan
+    /// reconnaissance nodes, strong for review/implement work.
     /// </summary>
     public static string ModelFor(NodeContext ctx, GatewayOptions gateway) =>
-        ctx.Node.Id is "gather" or "plan" ? gateway.CheapModel : gateway.StrongModel;
+        ctx.Node.ModelTier switch
+        {
+            "cheap" => gateway.CheapModel,
+            "strong" => gateway.StrongModel,
+            _ => ctx.Node.Id is "gather" or "plan" ? gateway.CheapModel : gateway.StrongModel,
+        };
 
     /// <summary>
     /// Runs one agent turn. <paramref name="session"/> carries conversation state for a continued

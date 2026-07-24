@@ -52,7 +52,7 @@ builder.Services.AddSingleton<IRunStore>(sp => new EfRunStore(
 builder.Services.AddSingleton<IApprovalStore>(sp => new EfApprovalStore(
     sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>(),
     sp.GetRequiredService<AuditEmitter>()));
-builder.Services.AddSingleton(sp => new WorkflowLoader(paths["Workflows"]!, paths["Prompts"]!));
+builder.Services.AddSingleton(sp => new WorkflowLoader(paths["Workflows"]!, paths["Prompts"]!, paths["Agents"]!));
 
 // M7 org policy floor: the ceiling every workflow — org default or team-namespaced — must fit inside
 // (allowed tools, a human gate upstream of any gated write, repo allowlist, budget cap). Loaded once,
@@ -69,13 +69,25 @@ builder.Services.AddSingleton(sp => new WorkflowCatalog(paths["Workflows"]!));
 // default or team workflow steps outside the ceiling, the process refuses to start — the violation is
 // caught here, not at the first run that happens to trigger it. Mirrors the offline eval guarantee.
 {
-    var bootLoader = new WorkflowLoader(paths["Workflows"]!, paths["Prompts"]!);
+    var bootLoader = new WorkflowLoader(paths["Workflows"]!, paths["Prompts"]!, paths["Agents"]!);
     var bootValidator = new PolicyFloorValidator(policyFloor);
     foreach (var file in Directory.EnumerateFiles(paths["Workflows"]!, "*.yaml", SearchOption.AllDirectories))
     {
         var name = Path.GetRelativePath(paths["Workflows"]!, file)[..^".yaml".Length].Replace('\\', '/');
-        bootValidator.EnsureCompliant(bootLoader.Load(name));
+        bootValidator.EnsureCompliant(bootLoader.Load(name));   // resolves agent_refs too (M7b)
     }
+    // M7b: every named agent must also fit the floor's tool ceiling — a registry agent whose tools
+    // exceed the org floor is a fail-fast even if no workflow references it yet.
+    var bootAgents = new AgentLoader(paths["Agents"]!, paths["Prompts"]!);
+    if (Directory.Exists(paths["Agents"]!))
+        foreach (var file in Directory.EnumerateFiles(paths["Agents"]!, "*.yaml", SearchOption.AllDirectories))
+        {
+            var agent = bootAgents.Load(Path.GetRelativePath(paths["Agents"]!, file)[..^".yaml".Length].Replace('\\', '/'));
+            foreach (var tool in agent.Tools)
+                if (!policyFloor.AllowsTool(tool))
+                    throw new InvalidOperationException(
+                        $"Agent '{agent.Name}' names tool '{tool}' outside the org policy floor's allowed_tools ceiling.");
+        }
 }
 // M3 un-bound the tools from a single startup repo: which repo a run targets now comes from the
 // request (validated against the allowlist below), so GitHub:Owner/Repo config is no longer the

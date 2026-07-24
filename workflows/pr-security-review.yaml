@@ -1,0 +1,24 @@
+# M7b demonstrator + product-vision Review-stage workflow: a security-focused PR review that pulls its
+# reviewer from the named agent registry. The `review` node declares ONLY `agent_ref: security-reviewer`
+# — its persona prompt, tools, model tier and output schema come from agents/security-reviewer.yaml,
+# not from this file. Read-only; ends at a single review comment (no write tool, so no human gate).
+name: pr-security-review
+description: Security-focused review of a pull request, using the named security-reviewer agent.
+permissions: { repo: read, github: comment }
+nodes:
+  - id: gather
+    kind: agent
+    prompt_ref: pr-review/gather.md
+    tools: [repo.read, github.pr_diff, codesearch.query]
+
+  - id: review
+    kind: agent
+    depends_on: [gather]
+    agent_ref: security-reviewer      # prompt + tools + model_tier + output_schema come from the registry
+
+  - id: post
+    kind: agent
+    depends_on: [review]
+    gate: auto                        # low-risk write (a comment) → auto-gate with policy scan
+    prompt_ref: pr-review/post.md
+    tools: [github.pr_comment]

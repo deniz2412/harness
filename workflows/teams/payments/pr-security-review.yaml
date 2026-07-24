@@ -1,0 +1,25 @@
+# M7b end-to-end team ownership: the payments team's security review. Because this workflow lives under
+# teams/payments/, the loader resolves its `agent_ref: security-reviewer` within the payments namespace
+# — picking agents/teams/payments/security-reviewer.yaml (the money-handling reviewer) over the org
+# default. Agent scope follows workflow scope, so a resume re-resolves the same agent from the stored
+# workflow name alone. Read-only; ends at one review comment.
+name: pr-security-review
+description: Payments-team security review of a pull request, using the team's security-reviewer agent.
+permissions: { repo: read, github: comment }
+nodes:
+  - id: gather
+    kind: agent
+    prompt_ref: pr-review/gather.md
+    tools: [repo.read, github.pr_diff, codesearch.query]
+
+  - id: review
+    kind: agent
+    depends_on: [gather]
+    agent_ref: security-reviewer      # resolves to the payments team's override (agent scope follows workflow scope)
+
+  - id: post
+    kind: agent
+    depends_on: [review]
+    gate: auto
+    prompt_ref: pr-review/post.md
+    tools: [github.pr_comment]
