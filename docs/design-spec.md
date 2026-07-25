@@ -3,9 +3,9 @@
 **Bank-owned AI coding harness on Microsoft Agent Framework (.NET), running on Docker Desktop**
 **Companion to:** AI-Harness-Analysis-and-Plan.md, Internal-Harness-Build-Analysis.md,
 Harness-Product-Vision-Roadmap.md (long-term horizons beyond M4)
-**Date:** 24 Jul 2026 · **Status:** v2.11 — local MVP scope; **M0–M3 ✅, F1 ✅, M5 ✅, M6 ✅, M7 ✅, M7b ✅,
-M7c ✅ complete and verified** (exit checks in `docs/m0-exit-check.md` … `docs/f1-exit-check.md`, `docs/m5-exit-check.md`,
-`docs/m6-exit-check.md`, `docs/m7-exit-check.md`, `docs/m7b-exit-check.md`, `docs/m7c-exit-check.md`; reviews in `REVIEW.md`). Highlights: M2's write path
+**Date:** 25 Jul 2026 · **Status:** v2.12 — local MVP scope; **M0–M3 ✅, F1 ✅, M5 ✅, M6 ✅, M7 ✅, M7b ✅,
+M7c ✅, F2 ✅ complete and verified** (exit checks in `docs/m0-exit-check.md` … `docs/f1-exit-check.md`, `docs/m5-exit-check.md`,
+`docs/m6-exit-check.md`, `docs/m7-exit-check.md`, `docs/m7b-exit-check.md`, `docs/m7c-exit-check.md`, `docs/f2-exit-check.md`; reviews in `REVIEW.md`). Highlights: M2's write path
 demonstrated live (human-gated PR test-repo-harness#2); M3 per-run repos behind a fail-closed
 allowlist; F1 a Blazor Server ops console; M5 the QA workflow pack; M6 the security pack
 (dependency-audit found a real High CVE, secrets-sweep clean — both live; threat-model-draft's
@@ -14,8 +14,9 @@ descoped, 3 of 4); M7 team namespaces + an org `policy.yaml` floor validated at 
 override + floor validation demonstrated live without the gateway; full pr-review-completion
 regression deferred on credits); M7b a named agent registry (`agent_ref` resolution, agent-pinned run
 sha, team agent overrides); M7c an MCP connector layer (config-declared, allowlisted external toolsets
-mounted through the audited seam with a write-capable boundary; in-process stub transport). **M4
-(graduation to real infra) is deferred by the human;** next is **F2 (workflow catalog & launcher)**.
+mounted through the audited seam with a write-capable boundary; in-process stub transport); F2 a
+workflow catalog & launcher on the F1 console (browse, DAG detail, launch, per-workflow stats). **M4
+(graduation to real infra) is deferred by the human;** next is **F3 (authoring workbench)**.
 Copies of this doc live in the repo at
 `harness/docs/` — keep both in sync.
 

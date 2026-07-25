@@ -45,10 +45,11 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅, M7c ✅ — done and verified.**
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅, M7c ✅, F2 ✅ — done and verified.**
 (M4 graduation deferred by the human.) Exit checks in `docs/m0-exit-check.md` …
 `docs/m3-exit-check.md`, `docs/f1-exit-check.md`, `docs/m5-exit-check.md`, `docs/m6-exit-check.md`,
-`docs/m7-exit-check.md`, `docs/m7b-exit-check.md`, `docs/m7c-exit-check.md`; review gates in `REVIEW.md`.
+`docs/m7-exit-check.md`, `docs/m7b-exit-check.md`, `docs/m7c-exit-check.md`, `docs/f2-exit-check.md`;
+review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -135,13 +136,24 @@ Docs (in-repo, canonical for this codebase):
   `docs.search` workflow and a run is created. 505 tests. Full live connector-invocation run deferred on
   gateway credit exhaustion.
 
-**Next: F2 — workflow catalog & launcher** (product-vision §5): browse the catalog + team workflows
-(parsed from YAML), workflow detail (DAG rendered from `depends_on`, permissions, gates), a launch form
-(repo/PR/issue/team params), run history + success rates per workflow. A frontend increment on the F1
-console; mostly reads existing data. M4 (graduation to real infra) is deferred by the human. Do NOT
-start F2 without explicit go-ahead. Open tails: M6's `threat-model-draft` live PR + M7/M7b/M7c
-completion runs all need an Anthropic **credit top-up** (a spend checkpoint); M6's `sast-triage` stays
-descoped. All are documentation-clean, not blockers.
+- **F2** shipped the **workflow catalog & launcher** on the F1 console (Blazor): `IWorkflowCatalogQueries`
+  — a read model that enumerates workflows via `WorkflowCatalog`, loads each through the production
+  `WorkflowLoader` (agent_refs merged, sha stamped), and reads per-workflow run stats; a `/catalog`
+  page (cards with scope/gate/ends-at badges + success rates), a `/workflow/{*name}` detail page (the
+  DAG as pure-CSS topological columns + permissions + gates + agent/connector tools + a Launch button),
+  and an upgraded `Launch.razor` (prefill from the catalog, a **team** field, the `PolicyFloorBlocked`
+  case F1 lacked). Read-only over the F1 query seam; the only write stays the launch/gate path.
+  **Demonstrated live in-container** (pages render; no gateway needed). Review caught + fixed one MAJOR:
+  the catalog→launch link now passes the bare name + team (`?workflow=pr-review&team=payments`), not the
+  slashed loader name, so team workflows launch. 511 tests.
+
+**Next: F3 — authoring workbench** (product-vision §5): a YAML editor with schema + **policy-floor
+checks before commit** (the M7 floor validates in-editor), a dry-run (validate + render the DAG, no
+execution), and a PR-based publishing flow to a team namespace (the UI drives git, never bypasses it) +
+versioned prompt editing. A frontend increment; needs the policy floor (shipped in M7). M4 (graduation
+to real infra) is deferred by the human. Do NOT start F3 without explicit go-ahead. Open tails: M6's
+`threat-model-draft` live PR + M7/M7b/M7c completion runs all need an Anthropic **credit top-up** (a
+spend checkpoint); M6's `sast-triage` stays descoped. All are documentation-clean, not blockers.
 
 Open residuals later milestones should weigh (tracked in `REVIEW.md`/`docs/threat-model.md`): no API
 auth + caller-supplied initiator (F1), runner egress (F11, closes with the container runner),
@@ -149,11 +161,11 @@ least-privilege DB role (F4), and token/cost never populated on audit events (A7
 shows 0 until it is wired).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **F2 — workflow catalog & launcher** (product-vision §5): browse catalog + team workflows, workflow
-  detail (DAG from `depends_on`, permissions, gates), a launch form, run history + success rates.
 - **F3 — authoring workbench** (product-vision §5): YAML editor with schema + policy-floor checks
-  before commit, dry-run (validate + render DAG), PR-based publishing to a team namespace.
-- **Vision horizons (product-vision §6):** F4 (dashboards/visual builder), M9+ business packs.
+  before commit, dry-run (validate + render DAG, no execution), PR-based publishing to a team namespace
+  (the UI drives git, never bypasses it), versioned prompt editing.
+- **Vision horizons (product-vision §6):** F4 (dashboards/visual builder), M9+ business packs
+  (post-graduation only).
 - **M4 — deferred:** graduation to real infra (OpenShift, Vault, SIEM, SSO). Real-infra checkpoint,
   taken up when the platform graduates off the workstation.
 

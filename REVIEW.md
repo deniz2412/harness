@@ -5,6 +5,41 @@ milestone; newest first.
 
 ---
 
+## F2 — Workflow catalog & launcher (2026-07-25)
+
+Independent review gate audited the full F2 diff `3473ebe..HEAD` (1 new read-model + its tests + 2
+Blazor pages; 4 modified shared files — Program.cs DI, MainLayout nav, Launch.razor, app.css). Verdict:
+**no invariant violation, zero scope creep** — the two invariant-critical items for a frontend
+milestone are clean: **read-only discipline** (`WorkflowCatalogQueries` does no writes/model/network —
+it loads local YAML via the production loader and reads the runs table; the only console write remains
+`IRunCoordinator`) and **no XSS** (no `MarkupString`/`Raw` on any workflow-derived text; Blazor
+auto-encodes). The DAG layering is correct (roots=0, node = deepest-dependency+1, cycle-guarded), stats
+avoid divide-by-zero, and the catalog fails soft on a broken file. But the reviewer found one MAJOR.
+
+### MAJOR — fixed
+
+- **F2-maj-1 — the catalog→launch path was broken for team/namespaced workflows.** The launch link
+  passed the resolved loader name (`teams/payments/pr-review`) into the launch `workflow` field, but
+  `RunCoordinator.StartAsync` → `WorkflowCatalog.ResolveName` rejects a slashed name (it expects a bare
+  name + separate team), so launching a team workflow from the catalog failed `BadWorkflow`. Fail-closed
+  (no invariant breach, no bad write), but the headline "browse team workflow → launch" path — exactly
+  the M7 feature F2's team browsing serves — was non-functional. **Fixed**: `WorkflowDetail.razor`'s
+  launch links now pass the **bare name + team** (`?workflow=<name>&team=<team>`), and `Launch.razor`
+  prefills both from the query; `StartAsync` then resolves the team override. Verified live: a team
+  workflow's rendered launch href is `/launch?workflow=pr-review&team=payments`, a flat one's is
+  `/launch?workflow=pr-review`.
+
+### MINORS — carried as tracked residuals
+
+- **F2-min-1 — the catalog→launch round-trip is render-verified, not unit-tested.** A test would have
+  caught F2-maj-1; it's a Blazor page interaction (consistent with F1, where pages are render-verified,
+  not unit-tested). The read model itself is unit-tested.
+- **F2-min-2 (moot) — the `%2F`-encoded catch-all route works** (HTTP 200 confirmed); no fix needed.
+- **Per-workflow stats read the runs table directly, unpaginated** — fine at PoC volume; a windowed
+  query is graduation-era.
+
+---
+
 ## M7c — MCP connector layer (2026-07-24)
 
 Independent review gate audited the full M7c diff `6b4f20d..HEAD` (2 new engine files + a stub + 4 test
