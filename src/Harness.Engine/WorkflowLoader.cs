@@ -48,6 +48,36 @@ public sealed class WorkflowLoader(string workflowsDir, string promptsDir, strin
         return wf;
     }
 
+    /// <summary>
+    /// F3: load and fully validate a workflow from YAML <em>text</em> rather than a file — the seam the
+    /// authoring workbench uses to check editor content before it is ever committed or run. Applies the
+    /// identical structural validation, prompt/agent resolution (against the real prompts/agents dirs,
+    /// so a dangling prompt_ref or agent_ref fails here), and sha stamping as <see cref="Load"/>. It
+    /// does NOT touch disk for the workflow and NEVER executes anything — it only parses and validates.
+    /// Throws the first structural/resolution problem (the same exceptions <see cref="Load"/> throws);
+    /// the caller surfaces catalog- and policy-floor checks separately.
+    /// </summary>
+    /// <param name="yaml">The workflow YAML text from the editor.</param>
+    /// <param name="name">A name for the draft (used only in the sha tag and error text).</param>
+    /// <param name="team">The team namespace to resolve agent_refs within (as a run would).</param>
+    public WorkflowDefinition LoadFromText(string yaml, string name = "workbench-draft", string? team = null)
+    {
+        var wf = Yaml.Deserialize<WorkflowDefinition>(yaml)
+                 ?? throw new InvalidOperationException("The workflow YAML is empty.");
+        Validate(wf);
+
+        var content = new SortedDictionary<string, byte[]>(StringComparer.Ordinal)
+        {
+            [$"workflow:{name}.yaml"] = Encoding.UTF8.GetBytes(yaml),
+        };
+        ResolveAgentRefs(wf, team, content);
+        foreach (var (rel, full) in ResolvePrompts(wf))
+            content[$"prompt:{rel}"] = File.ReadAllBytes(full);
+
+        wf.Sha = ComputeSha(content);
+        return wf;
+    }
+
     private static void Validate(WorkflowDefinition wf)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);

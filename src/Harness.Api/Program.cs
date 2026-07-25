@@ -175,6 +175,12 @@ builder.Services.AddSingleton<IWorkflowCatalogQueries>(sp => new WorkflowCatalog
     sp.GetRequiredService<WorkflowLoader>(),
     paths["Workflows"]!,
     sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>()));
+// F3 authoring workbench: validate editor YAML (structure + prompts/agents resolve + curated catalog +
+// org policy floor) and dry-run its DAG, without executing or writing anything. Pure/read-only.
+builder.Services.AddSingleton<IWorkbenchService>(sp => new WorkbenchService(
+    sp.GetRequiredService<WorkflowLoader>(),
+    sp.GetRequiredService<PolicyFloorValidator>(),
+    sp.GetRequiredService<McpConnectorRegistry>()));
 builder.Services.AddSingleton<IWorkflowRunner>(sp => new DagWorkflowRunner(
     sp.GetRequiredService<DagExecutor>()));
 builder.Services.AddSingleton<IRunCoordinator>(sp => new RunCoordinator(

@@ -1,0 +1,246 @@
+@page "/authoring"
+@rendermode InteractiveServer
+@inject IWorkbenchService Workbench
+
+<PageTitle>Authoring workbench — Harness</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/catalog">Catalog</a> <span class="sep">/</span> <span>Authoring</span></div>
+        <h1>Authoring workbench</h1>
+        <p class="muted">
+            Validate and dry-run a workflow before it is committed. Nothing here runs the workflow or
+            writes to the repo — publishing is a PR the platform owner reviews.
+        </p>
+    </div>
+</div>
+
+<section class="panel form-panel">
+    <label class="fld wb-editor">
+        <span>Workflow YAML</span>
+        <textarea class="input yaml-input" rows="22" spellcheck="false" @bind="_yaml" @bind:event="oninput"></textarea>
+    </label>
+    <label class="fld">
+        <span>Team <span class="muted">(optional — resolves agent_refs in a team's namespace)</span></span>
+        <input class="input" @bind="_team" placeholder="e.g. payments" />
+    </label>
+
+    <div class="decide-actions">
+        <button class="btn btn-primary" disabled="@_busy" @onclick="ValidateAsync">@(_busy ? "Validating…" : "Validate & dry-run")</button>
+    </div>
+</section>
+
+@if (_error is not null)
+{
+    <div class="banner banner-error">@_error</div>
+}
+
+@if (_result is not null)
+{
+    var r = _result;
+
+    @if (r.Ok)
+    {
+        <div class="banner banner-ok">Valid — this workflow would be accepted</div>
+    }
+    else
+    {
+        <div class="banner banner-error">@_issueCount issue(s) must be fixed before this can be published</div>
+    }
+
+    @if (r.Issues.Count > 0)
+    {
+        <section class="panel">
+            <h2>Issues</h2>
+            <div class="wb-issues">
+                @foreach (var issue in r.Issues)
+                {
+                    <div class="wb-issue @IssueClass(issue.Severity)">
+                        <span class="wb-issue-sev badge">@issue.Severity</span>
+                        <span class="wb-issue-msg">@issue.Message</span>
+                        @if (!string.IsNullOrWhiteSpace(issue.NodeId))
+                        {
+                            <span class="node-tool mono">node: @issue.NodeId</span>
+                        }
+                    </div>
+                }
+            </div>
+        </section>
+    }
+
+    @if (r.Dag is not null)
+    {
+        var dag = r.Dag;
+        <section class="panel">
+            <h2>Dry-run DAG (not executed)</h2>
+            <p class="muted">
+                Nodes flow left to right by layer; each node lists the nodes it runs after. This is a
+                validation-only preview — nothing is executed.
+            </p>
+            @if (dag.Permissions.Count > 0)
+            {
+                <div class="perms">
+                    <span class="k">Permissions</span>
+                    <div class="perm-list">
+                        @foreach (var p in dag.Permissions.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+                        {
+                            <span class="badge badge-neutral"><span class="mono">@p.Key</span>: @p.Value</span>
+                        }
+                    </div>
+                </div>
+            }
+            <div class="dag">
+                @foreach (var layer in BuildLayers(dag.Nodes))
+                {
+                    <div class="dag-layer">
+                        <div class="dag-layer-head muted">layer @layer.Key</div>
+                        @foreach (var n in layer.Value)
+                        {
+                            <div class="dag-node">
+                                <div class="dag-node-head">
+                                    <span class="node-id mono">@n.Id</span>
+                                    <span class="badge node-kind">@n.Kind</span>
+                                </div>
+                                @if (n.Gate is not null)
+                                {
+                                    <div class="node-gate @(IsHumanGate(n.Gate) ? "node-gate-human" : "")">gate: @n.Gate</div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(n.AgentRef))
+                                {
+                                    <div class="node-agent muted">via agent: <span class="mono">@n.AgentRef</span></div>
+                                }
+                                @if (n.Tools.Count > 0)
+                                {
+                                    <div class="node-tools">
+                                        @foreach (var t in n.Tools)
+                                        {
+                                            <span class="node-tool mono">@t</span>
+                                        }
+                                    </div>
+                                }
+                                @if (!string.IsNullOrWhiteSpace(n.ModelTier))
+                                {
+                                    <div class="node-meta muted">model: <span class="mono">@n.ModelTier</span></div>
+                                }
+                                @if (n.DependsOn.Count > 0)
+                                {
+                                    <div class="node-dep muted">← after: @string.Join(", ", n.DependsOn)</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </section>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(r.PublishPath))
+    {
+        <section class="panel wb-publish">
+            <h2>Publish preview</h2>
+            <div class="wb-publish-path"><span class="k">Target path</span> <span class="mono">@r.PublishPath</span></div>
+            <p class="muted">
+                Publish opens a reviewed pull request adding this file to the governed workflows repo.
+                The console does not write it directly — the platform owner reviews and merges.
+            </p>
+            <div class="decide-actions">
+                <button class="btn btn-primary" disabled="@(!r.Ok)" @onclick="Publish">Publish</button>
+            </div>
+            @if (_publishMessage is not null)
+            {
+                <div class="banner banner-ok">@_publishMessage</div>
+            }
+        </section>
+    }
+}
+
+@code {
+    // A small valid pr-review-shaped template so the editor is never blank. Read-only: it gathers a
+    // PR diff, reviews it, and posts a comment — it ends at a comment and never writes to the repo.
+    private const string Template =
+@"name: pr-review-draft
+permissions:
+  repo: read
+  github: comment
+nodes:
+  - id: gather
+    kind: agent
+    agent_ref: pr-context
+    model_tier: cheap
+    tools:
+      - github.pr_diff
+  - id: review
+    kind: agent
+    agent_ref: reviewer
+    model_tier: strong
+    depends_on: [gather]
+    tools:
+      - github.pr_files
+  - id: post
+    kind: agent
+    agent_ref: commenter
+    model_tier: cheap
+    depends_on: [review]
+    tools:
+      - github.issue_comment
+";
+
+    private string _yaml = Template;
+    private string _team = "";
+    private bool _busy;
+    private WorkbenchResult? _result;
+    private int _issueCount;
+    private string? _error;
+    private string? _publishMessage;
+
+    private async Task ValidateAsync()
+    {
+        _busy = true;
+        _error = null;
+        _publishMessage = null;
+        _result = null;
+        try
+        {
+            var team = string.IsNullOrWhiteSpace(_team) ? null : _team.Trim();
+            // Validate is pure/synchronous; yield first so the "Validating…" state renders.
+            await Task.Yield();
+            _result = Workbench.Validate(_yaml, team);
+            _issueCount = _result.Issues.Count(i =>
+                string.Equals(i.Severity, "error", StringComparison.OrdinalIgnoreCase));
+            if (_issueCount == 0 && !_result.Ok) _issueCount = _result.Issues.Count;
+        }
+        catch (Exception ex)
+        {
+            _result = null;
+            _error = "Validation could not run: " + ex.Message;
+        }
+        finally { _busy = false; }
+    }
+
+    // Deliberately performs NO write, NO git, NO run. Publishing a workflow is a reviewed PR the
+    // platform owner merges — that path is wired at graduation. This only confirms the intent.
+    private void Publish()
+    {
+        if (_result is null || !_result.Ok) return;
+        _publishMessage =
+            $"Prepared for publish: {_result.PublishPath}. (PR creation is wired at graduation — see the exit check.)";
+    }
+
+    private static string IssueClass(string severity) =>
+        string.Equals(severity, "error", StringComparison.OrdinalIgnoreCase)
+            ? "wb-issue-error"
+            : "wb-issue-warn";
+
+    private static IReadOnlyList<KeyValuePair<int, IReadOnlyList<WorkbenchNode>>> BuildLayers(
+        IReadOnlyList<WorkbenchNode> nodes) =>
+        nodes
+            .GroupBy(n => n.Layer)
+            .OrderBy(g => g.Key)
+            .Select(g => new KeyValuePair<int, IReadOnlyList<WorkbenchNode>>(
+                g.Key,
+                g.OrderBy(n => n.Id, StringComparer.OrdinalIgnoreCase).ToList()))
+            .ToList();
+
+    private static bool IsHumanGate(string gate) =>
+        gate.Contains("human", StringComparison.OrdinalIgnoreCase);
+}
