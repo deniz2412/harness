@@ -45,11 +45,11 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅, M7c ✅, F2 ✅ — done and verified.**
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅, M7c ✅, F2 ✅, F3 ✅ — done and verified.**
 (M4 graduation deferred by the human.) Exit checks in `docs/m0-exit-check.md` …
 `docs/m3-exit-check.md`, `docs/f1-exit-check.md`, `docs/m5-exit-check.md`, `docs/m6-exit-check.md`,
-`docs/m7-exit-check.md`, `docs/m7b-exit-check.md`, `docs/m7c-exit-check.md`, `docs/f2-exit-check.md`;
-review gates in `REVIEW.md`.
+`docs/m7-exit-check.md`, `docs/m7b-exit-check.md`, `docs/m7c-exit-check.md`, `docs/f2-exit-check.md`,
+`docs/f3-exit-check.md`; review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -147,13 +147,25 @@ review gates in `REVIEW.md`.
   the catalog→launch link now passes the bare name + team (`?workflow=pr-review&team=payments`), not the
   slashed loader name, so team workflows launch. 511 tests.
 
-**Next: F3 — authoring workbench** (product-vision §5): a YAML editor with schema + **policy-floor
-checks before commit** (the M7 floor validates in-editor), a dry-run (validate + render the DAG, no
-execution), and a PR-based publishing flow to a team namespace (the UI drives git, never bypasses it) +
-versioned prompt editing. A frontend increment; needs the policy floor (shipped in M7). M4 (graduation
-to real infra) is deferred by the human. Do NOT start F3 without explicit go-ahead. Open tails: M6's
-`threat-model-draft` live PR + M7/M7b/M7c completion runs all need an Anthropic **credit top-up** (a
-spend checkpoint); M6's `sast-triage` stays descoped. All are documentation-clean, not blockers.
+- **F3** shipped the **authoring workbench** on the console (Blazor): `WorkflowLoader.LoadFromText` (a
+  text sibling of `Load` — parse + structural validate + resolve prompts/agents, execute nothing, write
+  nothing; additive, `Load`'s sha unchanged) + `IWorkbenchService` that validates editor YAML against
+  the **same structure + curated-catalog/connector + org policy floor** a run enforces (plus a cycle
+  check), builds a **dry-run DAG (never executed)**, and computes a preview publish path; and an
+  `/authoring` page (editor + Validate & dry-run + issues + DAG + publish-**preview**). Author YAML is
+  **validated but never executed or written**. **Human-confirmed scope:** validate + dry-run +
+  publish-preview — real git-publish is a graduation drop-in (workflows mount is read-only), and
+  prompt-diff editing is deferred. Review caught + fixed one minor (cyclic workflows now rejected).
+  Demonstrated: service unit-tested vs the real floor/catalog; `/authoring` renders in-container. 521 tests.
+
+**Next: F4 — suite dashboards + (optional) visual builder** (product-vision §5/§6): org/team dashboards
+over the audit trail — spend, run volumes, gate latency, eval scores over time (the M2 golden-run
+harness feeds this); and, only here and only as a **YAML-emitting** layer, an optional drag-and-drop
+workflow builder (sugar over the artifact, never a second source of truth). A frontend increment; mostly
+reads. M4 (graduation to real infra) is deferred by the human. Do NOT start F4 without explicit
+go-ahead. After F4, the roadmap reaches **M9+ business packs** (post-graduation only). Open tails: M6's
+`threat-model-draft` live PR + M7/M7b/M7c completion runs all need an Anthropic **credit top-up**;
+M6's `sast-triage` stays descoped. All are documentation-clean, not blockers.
 
 Open residuals later milestones should weigh (tracked in `REVIEW.md`/`docs/threat-model.md`): no API
 auth + caller-supplied initiator (F1), runner egress (F11, closes with the container runner),
@@ -161,11 +173,12 @@ least-privilege DB role (F4), and token/cost never populated on audit events (A7
 shows 0 until it is wired).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **F3 — authoring workbench** (product-vision §5): YAML editor with schema + policy-floor checks
-  before commit, dry-run (validate + render DAG, no execution), PR-based publishing to a team namespace
-  (the UI drives git, never bypasses it), versioned prompt editing.
-- **Vision horizons (product-vision §6):** F4 (dashboards/visual builder), M9+ business packs
-  (post-graduation only).
+- **F4 — suite dashboards + (optional) visual builder** (product-vision §5): org/team dashboards (spend,
+  run volumes, gate latency, eval scores over time) over the audit trail; and, only as a YAML-emitting
+  layer, an optional drag-and-drop workflow builder — sugar over the artifact, never a second source of
+  truth. Mostly reads.
+- **Vision horizon (product-vision §6):** M9+ business packs (compliance/risk/IT-ops/knowledge) —
+  post-graduation (M8) only.
 - **M4 — deferred:** graduation to real infra (OpenShift, Vault, SIEM, SSO). Real-infra checkpoint,
   taken up when the platform graduates off the workstation.
 

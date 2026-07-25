@@ -313,7 +313,7 @@ every service's PR is written against the same standards, so multi-repo changes 
 | **M6** | Security workflow pack — dependency-audit, secrets-sweep, threat-model-draft (sast-triage deferred) | ✅ done (3 of 4; deps-audit + secrets-sweep live, threat-model gated-PR demo deferred on credits) |
 | **M7** | Team workflow namespaces + org policy floor (policy.yaml validation) | ✅ done (override + floor validation live without the gateway; boot-sweep enforced; full pr-review regression deferred on credits) |
 | **F2** | Workflow catalog & launcher (browse, DAG detail, launch, per-workflow stats) | ✅ done (Blazor on the F1 console; demonstrated live) |
-| **F3** | Authoring workbench — YAML editor + policy-floor checks before commit, dry-run, PR-based publish | **next** (needs the M7 policy floor, shipped) |
+| **F3** | Authoring workbench — YAML editor + policy-floor checks before commit, dry-run, PR-based publish | ✅ done (validate + dry-run + publish-preview; real git-publish + prompt-diff deferred) |
 | **M7b** | Named agent registry — first-class, team-owned agent definitions (`agent_ref`) | ✅ done (agent_ref resolution + agent-pinned sha + team overrides live without the gateway; full run deferred on credits) |
 | **M7c** | MCP connector layer — mount external MCP servers as allowlisted toolsets (§5a) | ✅ done (config-declared, allowlisted toolsets mounted through the audited seam + write-capable boundary; in-process stub transport, real MCP client a drop-in; governance pinned offline) |
 | **T1** | Inline PR line comments — `github.pr_review_comment` (line-anchored), catalog tool, `pr-review` upgraded to post per-line findings + a summary | small, do anytime (see below) |
@@ -324,7 +324,7 @@ every service's PR is written against the same standards, so multi-repo changes 
 | **K1** | Shared knowledge base — trusted, org/team/workspace-scoped standards injected into agents (§5d.A) | with/after M7 |
 | **W1** | Multi-repo workspaces — allowlisted repo groups, per-repo worktrees + PRs, cross-repo via cascade (§5d.B) | after M3 + P0 |
 | M4/M8 | Graduation — real infra (OpenShift, Vault, SIEM, SSO), multi-team operation | deferred (last) |
-| **F4** | Dashboards + (optional) visual builder | last |
+| **F4** | Dashboards + (optional) visual builder | **next** (last frontend increment) |
 | **M9+** | Business workflow packs (compliance, risk, IT ops, knowledge) — §5b, post-graduation only | horizon |
 
 **T1 note (inline line comments):** currently `pr-review`'s `post` node uses `github.pr_comment`

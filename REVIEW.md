@@ -5,6 +5,42 @@ milestone; newest first.
 
 ---
 
+## F3 — Authoring workbench (2026-07-25)
+
+Independent review gate audited the full F3 diff `f528156..HEAD` (1 new validation service + its tests +
+1 Blazor page; 4 modified shared files — WorkflowLoader `LoadFromText`, Program.cs DI, MainLayout nav,
+app.css). Verdict: **no MAJORs, no invariant violation, zero scope creep** for the human-confirmed scope
+(validate + dry-run + publish-preview; real git-publish and prompt-diff editing deliberately deferred).
+The three highest-risk axes for an authoring UI are clean: **never-execute** (`Validate`/`LoadFromText`/
+`Authoring.razor` touch no executor, model, or `IRunCoordinator`; publish is a string), **un-bypassable
+validation** (the workbench holds a draft to the exact structural + curated-catalog/connector + policy-
+floor checks a real run enforces — an un-catalogued tool and an ungated write both error), and **no XSS**
+(no `MarkupString` on any author-derived value). `LoadFromText` is additive and does not regress `Load`'s
+body or sha (agent-less shas byte-identical). Demonstrated: the service is unit-tested against the real
+floor/catalog; `/authoring` renders in-container.
+
+### MINOR — fixed
+
+- **F3-min-1 — cyclic workflows validated as "Valid".** `WorkflowLoader.Validate` checks duplicate ids
+  and dangling deps but NOT cycles — only the executor's topological sort catches a cycle, at run time,
+  which the workbench never calls. So a two-node `depends_on` cycle passed structure + catalog + floor
+  and the workbench reported `Ok=true` (no DoS — the DAG builder's on-stack guard returns layer 0 for
+  the back-edge — but a run would reject it fail-closed). The workbench's "valid" was therefore not a
+  full run-acceptance guarantee. **Fixed**: `WorkbenchService` now runs a `CollectCycleIssues` DFS that
+  rejects a dependency cycle with a clear message (+ a test that a cycle is rejected even when structure,
+  catalog, and floor all pass).
+
+### MINORS — carried as tracked residuals
+
+- **F3-min-2 — a harmless dead-code branch** in `Authoring.razor` (`_issueCount == 0 && !_result.Ok`,
+  unreachable since `Ok == !any(error)`). Cosmetic; left as-is.
+- **Prompt-diff editing deferred** (agreed scope); real **git-publish is a graduation drop-in** (the
+  container mounts `workflows/` read-only, no governed workflows repo).
+- The validate/dry-run round-trip is render-verified, not page-level unit-tested (Blazor interaction);
+  the service itself is fully unit-tested.
+
+---
+
 ## F2 — Workflow catalog & launcher (2026-07-25)
 
 Independent review gate audited the full F2 diff `3473ebe..HEAD` (1 new read-model + its tests + 2
