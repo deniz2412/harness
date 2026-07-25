@@ -181,6 +181,10 @@ builder.Services.AddSingleton<IWorkbenchService>(sp => new WorkbenchService(
     sp.GetRequiredService<WorkflowLoader>(),
     sp.GetRequiredService<PolicyFloorValidator>(),
     sp.GetRequiredService<McpConnectorRegistry>()));
+// F4 suite dashboards: read-only aggregates over the runs/approvals/events (volumes, status, gate
+// latency, spend). Same read-model seam as IRunQueries.
+builder.Services.AddSingleton<IDashboardQueries>(sp => new DashboardQueries(
+    sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>()));
 builder.Services.AddSingleton<IWorkflowRunner>(sp => new DagWorkflowRunner(
     sp.GetRequiredService<DagExecutor>()));
 builder.Services.AddSingleton<IRunCoordinator>(sp => new RunCoordinator(

@@ -1,0 +1,319 @@
+@page "/builder"
+@rendermode InteractiveServer
+@using Harness.Contracts
+@using Harness.Engine
+@inject IWorkbenchService Workbench
+
+<PageTitle>Visual builder — Harness</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/catalog">Catalog</a> <span class="sep">/</span> <span>Build</span></div>
+        <h1>Visual workflow builder</h1>
+    </div>
+</div>
+
+<section class="panel">
+    <p class="muted">
+        Drag nodes to arrange them, connect them into a DAG, then emit YAML and validate it. This is
+        sugar over the YAML artifact — it runs nothing and writes nothing; node positions are not part
+        of the workflow. Publishing is the F3 → reviewed-PR flow.
+    </p>
+    <div class="two-col">
+        <label class="fld"><span>Workflow name</span><input class="input" @bind="_name" placeholder="e.g. my-review" /></label>
+        <label class="fld"><span>Team <span class="muted">(optional)</span></span><input class="input" @bind="_team" placeholder="e.g. payments" /></label>
+    </div>
+    <label class="fld"><span>Description</span><input class="input" @bind="_description" /></label>
+    <div class="two-col">
+        <label class="fld"><span>permissions · repo</span>
+            <select class="input" @bind="_permRepo">
+                @foreach (var l in new[] { "none", "read", "write-worktree" }) { <option value="@l">@l</option> }
+            </select>
+        </label>
+        <label class="fld"><span>permissions · github</span>
+            <select class="input" @bind="_permGithub">
+                @foreach (var l in new[] { "none", "read", "comment", "open_pr+issues" }) { <option value="@l">@l</option> }
+            </select>
+        </label>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="builder-palette">
+        <span class="muted">Add node:</span>
+        @foreach (var k in new[] { "agent", "agent-loop", "bash", "gate" })
+        {
+            <button class="btn btn-sm" @onclick="() => AddNode(k)">+ @k</button>
+        }
+        <button class="btn btn-sm @( _connectMode ? "btn-primary" : "")" @onclick="ToggleConnect">
+            @(_connectMode ? (_connectSource is null ? "connect: pick source…" : "connect: pick target…") : "connect")
+        </button>
+        <button class="btn btn-sm" @onclick="Reset">clear</button>
+    </div>
+
+    <div class="builder-canvas" @onpointermove="OnPointerMove" @onpointerup="OnPointerUp" @onpointerleave="OnPointerUp">
+        <svg class="builder-edges" width="2400" height="1400">
+            <defs>
+                <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                    <path d="M0,0 L8,4 L0,8 z" fill="#6b7885" />
+                </marker>
+            </defs>
+            @foreach (var n in _nodes)
+            {
+                @foreach (var dep in n.DependsOn)
+                {
+                    var p = _nodes.FirstOrDefault(x => x.Id == dep);
+                    @if (p is not null)
+                    {
+                        <line x1="@(p.X + NodeW / 2)" y1="@(p.Y + NodeH)" x2="@(n.X + NodeW / 2)" y2="@n.Y"
+                              stroke="#6b7885" stroke-width="1.5" marker-end="url(#arrow)" />
+                    }
+                }
+            }
+        </svg>
+
+        @foreach (var n in _nodes)
+        {
+            <div class="canvas-node @(n.Id == _selectedId ? "canvas-node-selected" : "") @(n.Id == _connectSource ? "canvas-node-source" : "")"
+                 style="left:@(n.X)px; top:@(n.Y)px; width:@(NodeW)px;"
+                 @onpointerdown="e => OnNodeDown(e, n)" @onclick="() => OnNodeClick(n)">
+                <div class="dag-node-head">
+                    <span class="node-id">@n.Id</span>
+                    <span class="node-kind">@n.Kind</span>
+                </div>
+                @if (!string.IsNullOrWhiteSpace(n.AgentRef)) { <div class="node-agent">via agent: @n.AgentRef</div> }
+                else if (n.Tools.Count > 0) { <div class="node-tools">@foreach (var t in n.Tools) { <span class="node-tool">@t</span> }</div> }
+                @if (!string.IsNullOrWhiteSpace(n.Gate)) { <span class="node-gate @(n.Gate == "human" ? "node-gate-human" : "")">gate: @n.Gate</span> }
+            </div>
+        }
+
+        @if (_nodes.Count == 0)
+        {
+            <div class="canvas-empty muted">Add a node to begin.</div>
+        }
+    </div>
+</section>
+
+@if (_selected is not null)
+{
+    <section class="panel builder-prop">
+        <div class="panel-head"><h2>Node · @_selected.Id</h2>
+            <button class="btn btn-sm btn-reject" @onclick="() => DeleteNode(_selected)">delete</button></div>
+        <div class="two-col">
+            <label class="fld"><span>id</span><input class="input" value="@_selected.Id" @onchange="e => RenameNode(_selected, e.Value?.ToString())" /></label>
+            <label class="fld"><span>kind</span>
+                <select class="input" @bind="_selected.Kind">
+                    @foreach (var k in new[] { "agent", "agent-loop", "bash", "gate" }) { <option value="@k">@k</option> }
+                </select>
+            </label>
+        </div>
+        <div class="two-col">
+            <label class="fld"><span>prompt_ref</span><input class="input" @bind="_selected.PromptRef" placeholder="pr-review/review.md" /></label>
+            <label class="fld"><span>agent_ref <span class="muted">(mutually exclusive w/ inline)</span></span><input class="input" @bind="_selected.AgentRef" placeholder="security-reviewer" /></label>
+        </div>
+        <label class="fld"><span>tools <span class="muted">(comma-separated)</span></span>
+            <input class="input" value="@string.Join(", ", _selected.Tools)" @onchange="e => SetTools(_selected, e.Value?.ToString())" /></label>
+        <div class="two-col">
+            <label class="fld"><span>model_tier</span>
+                <select class="input" @bind="_selected.ModelTier">
+                    <option value="">(none)</option><option value="cheap">cheap</option><option value="strong">strong</option>
+                </select>
+            </label>
+            <label class="fld"><span>gate</span>
+                <select class="input" @bind="_selected.Gate">
+                    <option value="">(none)</option><option value="auto">auto</option><option value="human">human</option>
+                </select>
+            </label>
+        </div>
+        <label class="fld"><span>output_schema</span><input class="input" @bind="_selected.OutputSchema" placeholder="schemas/review-findings.json" /></label>
+        <div class="muted">depends on: @(_selected.DependsOn.Count == 0 ? "—" : string.Join(", ", _selected.DependsOn))</div>
+    </section>
+}
+
+<section class="panel">
+    <div class="decide-actions">
+        <button class="btn btn-primary" @onclick="EmitAndValidate">Emit YAML &amp; validate</button>
+    </div>
+    <p class="muted">Emits the workflow YAML and checks it against the org floor/catalog (the F3 workbench). Runs nothing, writes nothing.</p>
+
+    @if (_yaml is not null)
+    {
+        @if (_result is not null)
+        {
+            <div class="banner @(_result.Ok ? "banner-ok" : "banner-error")">
+                @(_result.Ok ? "Valid — this workflow would be accepted." : $"{_result.Issues.Count(i => i.Severity == "error")} issue(s) must be fixed.")
+            </div>
+            @if (_result.Issues.Count > 0)
+            {
+                <div class="wb-issues">
+                    @foreach (var i in _result.Issues)
+                    {
+                        <div class="wb-issue @(i.Severity == "error" ? "wb-issue-error" : "wb-issue-warn")">
+                            <span class="wb-issue-sev">@i.Severity</span>
+                            <span class="wb-issue-msg">@i.Message</span>
+                            @if (i.NodeId is not null) { <span class="badge badge-neutral">node: @i.NodeId</span> }
+                        </div>
+                    }
+                </div>
+            }
+        }
+        <textarea class="yaml-input" rows="14" readonly>@_yaml</textarea>
+    }
+</section>
+
+@code {
+    private const int NodeW = 170;
+    private const int NodeH = 64;
+
+    private string _name = "my-workflow";
+    private string _description = "";
+    private string _team = "";
+    private string _permRepo = "read";
+    private string _permGithub = "comment";
+
+    private readonly List<CanvasNode> _nodes = new();
+    private int _seq = 1;
+    private string? _selectedId;
+    private CanvasNode? _selected => _nodes.FirstOrDefault(n => n.Id == _selectedId);
+
+    // Drag state (client-coordinate deltas — no JS interop needed).
+    private string? _dragId;
+    private double _startClientX, _startClientY;
+    private int _startX, _startY;
+
+    // Connect state.
+    private bool _connectMode;
+    private string? _connectSource;
+
+    private string? _yaml;
+    private WorkbenchResult? _result;
+
+    private void AddNode(string kind)
+    {
+        var id = $"node{_seq++}";
+        var col = (_nodes.Count % 4);
+        _nodes.Add(new CanvasNode { Id = id, Kind = kind, X = 40 + col * 200, Y = 40 + (_nodes.Count / 4) * 110 });
+        _selectedId = id;
+    }
+
+    private void OnNodeDown(PointerEventArgs e, CanvasNode n)
+    {
+        if (_connectMode) return;   // clicks drive connect mode, not drag
+        _dragId = n.Id;
+        _startClientX = e.ClientX; _startClientY = e.ClientY;
+        _startX = n.X; _startY = n.Y;
+    }
+
+    private void OnPointerMove(PointerEventArgs e)
+    {
+        if (_dragId is null) return;
+        var n = _nodes.FirstOrDefault(x => x.Id == _dragId);
+        if (n is null) return;
+        n.X = Math.Max(0, _startX + (int)(e.ClientX - _startClientX));
+        n.Y = Math.Max(0, _startY + (int)(e.ClientY - _startClientY));
+    }
+
+    private void OnPointerUp() => _dragId = null;
+
+    private void OnNodeClick(CanvasNode n)
+    {
+        if (_connectMode)
+        {
+            if (_connectSource is null) { _connectSource = n.Id; }
+            else if (_connectSource != n.Id)
+            {
+                var target = n;                                   // target depends on source
+                if (!target.DependsOn.Contains(_connectSource)) target.DependsOn.Add(_connectSource);
+                _connectSource = null;
+            }
+            return;
+        }
+        _selectedId = n.Id;
+    }
+
+    private void ToggleConnect() { _connectMode = !_connectMode; _connectSource = null; }
+
+    private void DeleteNode(CanvasNode n)
+    {
+        _nodes.Remove(n);
+        foreach (var other in _nodes) other.DependsOn.Remove(n.Id);
+        if (_selectedId == n.Id) _selectedId = null;
+    }
+
+    private void RenameNode(CanvasNode n, string? raw)
+    {
+        var id = raw?.Trim();
+        if (string.IsNullOrWhiteSpace(id) || _nodes.Any(x => x != n && x.Id == id)) return;
+        var old = n.Id;
+        foreach (var other in _nodes)
+            for (var i = 0; i < other.DependsOn.Count; i++)
+                if (other.DependsOn[i] == old) other.DependsOn[i] = id;
+        n.Id = id;
+        _selectedId = id;
+    }
+
+    private static void SetTools(CanvasNode n, string? raw)
+    {
+        n.Tools.Clear();
+        if (!string.IsNullOrWhiteSpace(raw))
+            n.Tools.AddRange(raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    private void Reset()
+    {
+        _nodes.Clear(); _selectedId = null; _connectSource = null; _connectMode = false;
+        _yaml = null; _result = null; _seq = 1;
+    }
+
+    private void EmitAndValidate()
+    {
+        var perms = new Dictionary<string, string>();
+        if (_permRepo != "none") perms["repo"] = _permRepo;
+        if (_permGithub != "none") perms["github"] = _permGithub;
+
+        var wf = new WorkflowDefinition
+        {
+            Name = string.IsNullOrWhiteSpace(_name) ? "unnamed" : _name.Trim(),
+            Description = string.IsNullOrWhiteSpace(_description) ? null : _description.Trim(),
+            Permissions = perms,
+            Nodes = _nodes.Select(n => new NodeDefinition
+            {
+                Id = n.Id,
+                Kind = n.Kind,
+                DependsOn = new List<string>(n.DependsOn),
+                AgentRef = string.IsNullOrWhiteSpace(n.AgentRef) ? null : n.AgentRef.Trim(),
+                PromptRef = string.IsNullOrWhiteSpace(n.PromptRef) ? null : n.PromptRef.Trim(),
+                Tools = new List<string>(n.Tools),
+                ModelTier = string.IsNullOrWhiteSpace(n.ModelTier) ? null : n.ModelTier,
+                Gate = string.IsNullOrWhiteSpace(n.Gate) ? null : n.Gate,
+                OutputSchema = string.IsNullOrWhiteSpace(n.OutputSchema) ? null : n.OutputSchema.Trim(),
+            }).ToList(),
+        };
+
+        _yaml = WorkflowYamlWriter.ToYaml(wf);
+        try
+        {
+            _result = Workbench.Validate(_yaml, string.IsNullOrWhiteSpace(_team) ? null : _team.Trim());
+        }
+        catch (Exception ex)
+        {
+            _result = new WorkbenchResult(false,
+                new[] { new WorkbenchIssue("error", "validation failed: " + ex.Message, null) }, null, null);
+        }
+    }
+
+    private sealed class CanvasNode
+    {
+        public string Id { get; set; } = "";
+        public string Kind { get; set; } = "agent";
+        public List<string> DependsOn { get; } = new();
+        public string? PromptRef { get; set; }
+        public string? AgentRef { get; set; }
+        public List<string> Tools { get; } = new();
+        public string? ModelTier { get; set; }
+        public string? Gate { get; set; }
+        public string? OutputSchema { get; set; }
+        public int X { get; set; }
+        public int Y { get; set; }
+    }
+}

@@ -1,0 +1,143 @@
+@page "/dashboard"
+@rendermode InteractiveServer
+@using Harness.Contracts
+@inject IDashboardQueries Dash
+
+<PageTitle>Dashboards — Harness</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/">Runs</a> <span class="sep">/</span> <span>Dashboards</span></div>
+        <h1>Suite dashboards</h1>
+    </div>
+</div>
+
+@if (!_loaded)
+{
+    <section class="panel"><p class="muted">Loading…</p></section>
+}
+else
+{
+    <section class="panel">
+        <div class="totals">
+            <div class="stat"><span class="stat-v">@_summary!.TotalRuns</span><span class="stat-k">total runs</span></div>
+            <div class="stat"><span class="stat-v">@_summary.Finished</span><span class="stat-k">finished</span></div>
+            <div class="stat"><span class="stat-v">@Dur(_summary.AvgDurationSec)</span><span class="stat-k">avg duration</span></div>
+            <div class="stat"><span class="stat-v">@_summary.GatesDecided</span><span class="stat-k">gates decided</span></div>
+            <div class="stat"><span class="stat-v">@Dur(_summary.AvgGateLatencySec)</span><span class="stat-k">avg gate latency</span></div>
+            <div class="stat">
+                <span class="stat-v">@_summary.TotalCostUsd.ToString("C")</span>
+                <span class="stat-k">spend <span class="muted">· token/cost pending (A7/F8)</span></span>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-head"><h2>By status</h2></div>
+        <div class="wf-badges">
+            @foreach (var s in _summary.ByStatus)
+            {
+                <span class="badge @StatusBadge(s.Status)">@s.Status: @s.Count</span>
+            }
+            @if (_summary.ByStatus.Count == 0)
+            {
+                <span class="muted">no runs yet</span>
+            }
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-head"><h2>Run volume <span class="muted">· last 14 days</span></h2></div>
+        @if (_volume.All(v => v.Total == 0))
+        {
+            <p class="muted">No runs in the last 14 days.</p>
+        }
+        else
+        {
+            var max = Math.Max(1, _volume.Max(v => v.Total));
+            <div class="chart">
+                @foreach (var v in _volume)
+                {
+                    <div class="chart-col" title="@(v.Day.ToString("MMM d")): @v.Total run(s), @v.Completed ok, @v.Failed failed">
+                        <div class="chart-bar">
+                            <div class="chart-bar-fill bar-ok" style="height:@Pct(v.Completed, max)%"></div>
+                            <div class="chart-bar-fill bar-fail" style="height:@Pct(v.Failed, max)%"></div>
+                            <div class="chart-bar-fill bar-other" style="height:@Pct(v.Total - v.Completed - v.Failed, max)%"></div>
+                        </div>
+                        <div class="chart-label">@v.Day.Day</div>
+                    </div>
+                }
+            </div>
+            <div class="muted" style="margin-top:8px;">
+                <span class="swatch bar-ok"></span> completed
+                <span class="swatch bar-fail"></span> failed
+                <span class="swatch bar-other"></span> other
+            </div>
+        }
+    </section>
+
+    <section class="panel">
+        <div class="panel-head"><h2>By workflow</h2></div>
+        @if (_byWorkflow.Count == 0)
+        {
+            <p class="muted">No runs yet.</p>
+        }
+        else
+        {
+            <div class="table-wrap">
+                <table class="grid compact">
+                    <thead>
+                        <tr><th>Workflow</th><th class="num">Runs</th><th>Success</th><th class="num">Avg dur</th><th>Last run</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var w in _byWorkflow)
+                        {
+                            <tr>
+                                <td><a href="@($"/workflow/{w.Workflow}")">@w.Workflow</a></td>
+                                <td class="num">@w.Total</td>
+                                <td>
+                                    <div class="rate-bar"><div class="rate-bar-fill" style="width:@Percent(w.SuccessRate)%"></div></div>
+                                    <span class="muted">@Percent(w.SuccessRate)%</span>
+                                </td>
+                                <td class="num">@Dur(w.AvgDurationSec)</td>
+                                <td class="muted nowrap">@(w.LastRunAt?.ToString("yyyy-MM-dd HH:mm") ?? "—")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+@code {
+    private bool _loaded;
+    private DashboardSummary? _summary;
+    private IReadOnlyList<VolumePoint> _volume = Array.Empty<VolumePoint>();
+    private IReadOnlyList<WorkflowVolume> _byWorkflow = Array.Empty<WorkflowVolume>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _summary = await Dash.GetSummaryAsync();
+        _volume = await Dash.RunVolumeByDayAsync(14);
+        _byWorkflow = await Dash.ByWorkflowAsync();
+        _loaded = true;
+    }
+
+    private static int Pct(int n, int max) => max <= 0 ? 0 : (int)Math.Round(100.0 * n / max);
+    private static int Percent(double rate) => (int)Math.Round(rate * 100);
+
+    private static string Dur(double sec) =>
+        sec <= 0 ? "—" : sec < 60 ? $"{sec:0}s" : $"{(int)(sec / 60)}m {(int)(sec % 60)}s";
+
+    private static string StatusBadge(RunStatus s) => s switch
+    {
+        RunStatus.Completed => "badge-ok",
+        RunStatus.Failed => "badge-failed",
+        RunStatus.AwaitingApproval => "badge-await",
+        RunStatus.Running => "badge-running",
+        RunStatus.PolicyBlocked => "badge-blocked",
+        RunStatus.Rejected => "badge-rejected",
+        _ => "badge-pending",
+    };
+}

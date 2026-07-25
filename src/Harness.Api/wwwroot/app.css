@@ -246,6 +246,34 @@ textarea.input { resize: vertical; font-family: inherit; }
 .wb-publish { border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 14px 16px; margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
 .wb-publish-path, .wb-publish .path { font-family: var(--mono); font-size: 12.5px; color: #79c0ff; }
 
+/* F4 — dashboards */
+.chart { display: flex; align-items: flex-end; gap: 6px; height: 140px; padding-top: 8px; border-bottom: 1px solid var(--line); }
+.chart-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.chart-bar { display: flex; flex-direction: column-reverse; width: 60%; max-width: 28px; height: 120px; background: var(--bg); border-radius: 3px 3px 0 0; overflow: hidden; }
+.chart-bar-fill { width: 100%; }
+.chart-label { font-size: 10px; color: var(--fg-mute); }
+.bar-ok { background: var(--ok); }
+.bar-fail { background: var(--bad); }
+.bar-other { background: var(--line-2); }
+.swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px 0 10px; vertical-align: middle; }
+.rate-bar { display: inline-block; width: 90px; height: 7px; background: var(--bg-3); border-radius: 999px; overflow: hidden; vertical-align: middle; margin-right: 6px; }
+.rate-bar-fill { height: 100%; background: var(--ok); }
+
+/* F4 — visual builder */
+.builder-palette { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.builder-canvas { position: relative; height: 540px; overflow: auto; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px;
+    background-image: radial-gradient(var(--line) 1px, transparent 1px); background-size: 22px 22px; }
+.builder-edges { position: absolute; top: 0; left: 0; pointer-events: none; }
+.canvas-node { position: absolute; background: var(--bg-2); border: 1px solid var(--line-2);
+    border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px;
+    cursor: grab; user-select: none; touch-action: none; z-index: 1; }
+.canvas-node:active { cursor: grabbing; }
+.canvas-node-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.canvas-node-source { border-color: var(--await); box-shadow: 0 0 0 1px var(--await) inset; }
+.canvas-empty { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.builder-prop { max-width: 720px; }
+
 @media (max-width: 640px) {
     .content { padding: 16px; }
     .two-col { grid-template-columns: 1fr; }
