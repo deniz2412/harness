@@ -1,0 +1,168 @@
+@page "/catalog"
+@rendermode InteractiveServer
+@implements IDisposable
+@using Harness.Engine
+@inject IWorkflowCatalogQueries Queries
+
+<PageTitle>Workflow catalog — Harness</PageTitle>
+
+<div class="page-head">
+    <div>
+        <h1>Workflow catalog</h1>
+        <p class="muted">The workflows the platform can run, resolved from the declarative layer. Pick one to inspect its DAG or launch it.</p>
+    </div>
+</div>
+
+@if (_error is not null)
+{
+    <div class="banner banner-error">@_error</div>
+}
+
+@if (_workflows is null)
+{
+    <p class="muted">Loading catalog…</p>
+}
+else if (_workflows.Count == 0)
+{
+    <div class="panel">
+        <p class="muted">No workflows are catalogued. The declarative layer under <span class="mono">workflows/</span> is empty or did not resolve.</p>
+    </div>
+}
+else
+{
+    @foreach (var group in _grouped)
+    {
+        <section class="catalog-group">
+            <h2 class="catalog-group-head">@group.Heading <span class="muted">(@group.Items.Count)</span></h2>
+            <div class="catalog-grid">
+                @foreach (var w in group.Items)
+                {
+                    var stat = _stats.GetValueOrDefault(w.LoaderName);
+                    <a class="wf-card panel" href="@($"/workflow/{Uri.EscapeDataString(w.LoaderName)}")">
+                        <div class="wf-card-head">
+                            <span class="wf-name">@w.Name</span>
+                            <span class="badge @ScopeBadgeClass(w.Scope)">@ScopeLabel(w)</span>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(w.Description))
+                        {
+                            <p class="wf-desc muted">@w.Description</p>
+                        }
+                        <div class="wf-badges">
+                            <span class="badge badge-neutral">@w.NodeCount node@(w.NodeCount == 1 ? "" : "s")</span>
+                            <span class="badge badge-neutral">@EndsAtLabel(w.EndsAt)</span>
+                            @if (w.HasHumanGate)
+                            {
+                                <span class="badge badge-await">human gate</span>
+                            }
+                        </div>
+                        @if (stat is not null && stat.TotalRuns > 0)
+                        {
+                            <div class="wf-stats muted">
+                                <span><span class="mono">@stat.TotalRuns</span> run@(stat.TotalRuns == 1 ? "" : "s")</span>
+                                <span class="sep">·</span>
+                                <span><span class="mono">@Percent(stat.SuccessRate)</span> success</span>
+                                @if (stat.LastRunAt is DateTimeOffset last)
+                                {
+                                    <span class="sep">·</span>
+                                    <span title="@UiFormat.Timestamp(last)">@Relative(last)</span>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="wf-stats muted"><span>no runs yet</span></div>
+                        }
+                    </a>
+                }
+            </div>
+        </section>
+    }
+}
+
+@code {
+    private IReadOnlyList<WorkflowSummary>? _workflows;
+    private IReadOnlyDictionary<string, WorkflowStat> _stats = new Dictionary<string, WorkflowStat>();
+    private IReadOnlyList<Group> _grouped = Array.Empty<Group>();
+    private string? _error;
+    private DateTimeOffset _now = DateTimeOffset.UtcNow;
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _workflows = Queries.ListWorkflows();
+            var stats = await Queries.WorkflowStatsAsync(_cts.Token);
+            _stats = stats.ToDictionary(s => s.Workflow, s => s);
+            _now = DateTimeOffset.UtcNow;
+            _grouped = GroupByScope(_workflows);
+            _error = null;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            _error = "Could not load the catalog: " + ex.Message;
+        }
+    }
+
+    // Group by scope so team overrides, shipped defaults, and flat legacy workflows read as
+    // distinct shelves — most-specific (Team) first, matching WorkflowScope's declared order.
+    private static IReadOnlyList<Group> GroupByScope(IReadOnlyList<WorkflowSummary> workflows) =>
+        workflows
+            .GroupBy(w => w.Scope)
+            .OrderBy(g => (int)g.Key)
+            .Select(g => new Group(
+                GroupHeading(g.Key),
+                g.OrderBy(w => w.Name, StringComparer.OrdinalIgnoreCase).ToList()))
+            .ToList();
+
+    private static string GroupHeading(WorkflowScope scope) => scope switch
+    {
+        WorkflowScope.Team => "Team workflows",
+        WorkflowScope.Default => "Default workflows",
+        WorkflowScope.Flat => "Flat workflows",
+        _ => "Workflows"
+    };
+
+    private static string ScopeLabel(WorkflowSummary w) => w.Scope switch
+    {
+        WorkflowScope.Team => "team: " + (w.Team ?? "?"),
+        WorkflowScope.Default => "default",
+        WorkflowScope.Flat => "flat",
+        _ => w.Scope.ToString().ToLowerInvariant()
+    };
+
+    private static string ScopeBadgeClass(WorkflowScope scope) => scope switch
+    {
+        WorkflowScope.Team => "badge-team",
+        _ => "badge-neutral"
+    };
+
+    private static string EndsAtLabel(string endsAt) => endsAt switch
+    {
+        "PR" => "→ PR",
+        "comment" => "→ comment",
+        _ => "read-only"
+    };
+
+    private static string Percent(double rate) =>
+        (rate * 100).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    private string Relative(DateTimeOffset ts)
+    {
+        var span = _now - ts;
+        if (span < TimeSpan.Zero) span = TimeSpan.Zero;
+        if (span.TotalMinutes < 1) return "just now";
+        if (span.TotalHours < 1) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalDays < 1) return $"{(int)span.TotalHours}h ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+
+    private sealed record Group(string Heading, IReadOnlyList<WorkflowSummary> Items);
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

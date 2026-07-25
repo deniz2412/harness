@@ -1,0 +1,192 @@
+@page "/workflow/{*LoaderName}"
+@rendermode InteractiveServer
+@using Harness.Engine
+@inject IWorkflowCatalogQueries Catalog
+
+<PageTitle>@(_view?.Name ?? "Workflow") — Harness</PageTitle>
+
+<div class="page-head">
+    <div>
+        <div class="crumbs"><a href="/catalog">Catalog</a> <span class="sep">/</span> <span>@(_view?.Name ?? LoaderName)</span></div>
+        <h1>@(_view?.Name ?? "Workflow")</h1>
+    </div>
+    @if (_view is not null)
+    {
+        <div class="page-actions">
+            <a class="btn btn-primary" href="@LaunchHref(_view)">Launch this workflow</a>
+        </div>
+    }
+</div>
+
+@if (_error is not null)
+{
+    <div class="banner banner-error">@_error</div>
+}
+
+@if (_view is null)
+{
+    @if (!_loaded)
+    {
+        <p class="muted">Loading workflow…</p>
+    }
+    else
+    {
+        <div class="panel">
+            <p class="muted">Workflow <span class="mono">@LoaderName</span> was not found in the catalogue.</p>
+            <a class="btn" href="/catalog">Back to catalog</a>
+        </div>
+    }
+}
+else
+{
+    var v = _view;
+
+    <section class="panel">
+        <div class="header-grid">
+            <div><span class="k">Scope</span><span class="badge @ScopeBadgeClass(v.Scope)">@ScopeLabel(v)</span></div>
+            <div><span class="k">Nodes</span><span class="mono">@v.Nodes.Count</span></div>
+            <div><span class="k">Workflow&nbsp;sha</span><span class="mono trunc" title="@v.Sha">@v.Sha</span></div>
+        </div>
+        @if (!string.IsNullOrWhiteSpace(v.Description))
+        {
+            <p class="wf-desc">@v.Description</p>
+        }
+        @if (v.Permissions.Count > 0)
+        {
+            <div class="perms">
+                <span class="k">Permissions</span>
+                <div class="perm-list">
+                    @foreach (var p in v.Permissions.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+                    {
+                        <span class="badge badge-neutral"><span class="mono">@p.Key</span>: @p.Value</span>
+                    }
+                </div>
+            </div>
+        }
+    </section>
+
+    <section class="panel">
+        <h2>Workflow DAG</h2>
+        <p class="muted">Nodes flow left to right by layer; each node lists the nodes it runs after. No edges are drawn — dependencies are named under each node.</p>
+        <div class="dag">
+            @foreach (var layer in _layers)
+            {
+                <div class="dag-layer">
+                    <div class="dag-layer-head muted">layer @layer.Key</div>
+                    @foreach (var n in layer.Value)
+                    {
+                        <div class="dag-node">
+                            <div class="dag-node-head">
+                                <span class="node-id mono">@n.Id</span>
+                                <span class="badge node-kind">@n.Kind</span>
+                            </div>
+                            @if (n.Gate is not null)
+                            {
+                                <div class="node-gate @(IsHumanGate(n.Gate) ? "node-gate-human" : "")">gate: @n.Gate</div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(n.AgentRef))
+                            {
+                                <div class="node-agent muted">via agent: <span class="mono">@n.AgentRef</span></div>
+                            }
+                            @if (n.Tools.Count > 0)
+                            {
+                                <div class="node-tools">
+                                    @foreach (var t in n.Tools)
+                                    {
+                                        <span class="node-tool mono">@t</span>
+                                    }
+                                </div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(n.ModelTier))
+                            {
+                                <div class="node-meta muted">model: <span class="mono">@n.ModelTier</span></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(n.PromptRef))
+                            {
+                                <div class="node-meta muted">prompt: <span class="mono">@n.PromptRef</span></div>
+                            }
+                            @if (!string.IsNullOrWhiteSpace(n.OutputSchema))
+                            {
+                                <div class="node-meta muted">schema: <span class="mono">@n.OutputSchema</span></div>
+                            }
+                            @if (n.DependsOn.Count > 0)
+                            {
+                                <div class="node-dep muted">← after: @string.Join(", ", n.DependsOn)</div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+
+    <div class="page-actions launch-foot">
+        <a class="btn btn-primary" href="@LaunchHref(v)">Launch this workflow</a>
+    </div>
+}
+
+@code {
+    [Parameter] public string LoaderName { get; set; } = "";
+
+    private WorkflowDetailView? _view;
+    private bool _loaded;
+    private string? _error;
+    private IReadOnlyList<KeyValuePair<int, IReadOnlyList<WorkflowNodeView>>> _layers =
+        Array.Empty<KeyValuePair<int, IReadOnlyList<WorkflowNodeView>>>();
+
+    // Launch takes a BARE workflow name + optional team (the M7 model), not the resolved loader name —
+    // ResolveName rejects a slashed name. So a team workflow launches via ?workflow=<name>&team=<team>.
+    private static string LaunchHref(WorkflowDetailView v) =>
+        v.Team is null
+            ? $"/launch?workflow={Uri.EscapeDataString(v.Name)}"
+            : $"/launch?workflow={Uri.EscapeDataString(v.Name)}&team={Uri.EscapeDataString(v.Team)}";
+
+    protected override void OnParametersSet()
+    {
+        _loaded = false;
+        _view = null;
+        try
+        {
+            // The catch-all route captures the path verbatim; a team loader name arrives with its
+            // slashes intact, so no decoding is needed here.
+            _view = Catalog.GetWorkflow(LoaderName);
+            if (_view is not null) _layers = BuildLayers(_view.Nodes);
+            _error = null;
+        }
+        catch (Exception ex)
+        {
+            _error = "Could not load the workflow: " + ex.Message;
+        }
+        finally
+        {
+            _loaded = true;
+        }
+    }
+
+    private static IReadOnlyList<KeyValuePair<int, IReadOnlyList<WorkflowNodeView>>> BuildLayers(
+        IReadOnlyList<WorkflowNodeView> nodes) =>
+        nodes
+            .GroupBy(n => n.Layer)
+            .OrderBy(g => g.Key)
+            .Select(g => new KeyValuePair<int, IReadOnlyList<WorkflowNodeView>>(
+                g.Key,
+                g.OrderBy(n => n.Id, StringComparer.OrdinalIgnoreCase).ToList()))
+            .ToList();
+
+    private static bool IsHumanGate(string gate) =>
+        gate.Contains("human", StringComparison.OrdinalIgnoreCase);
+
+    private static string ScopeLabel(WorkflowDetailView v) => v.Scope switch
+    {
+        WorkflowScope.Team => "team: " + (v.Team ?? "?"),
+        WorkflowScope.Default => "default",
+        WorkflowScope.Flat => "flat",
+        _ => v.Scope.ToString().ToLowerInvariant()
+    };
+
+    private static string ScopeBadgeClass(WorkflowScope scope) => scope switch
+    {
+        WorkflowScope.Team => "badge-team",
+        _ => "badge-neutral"
+    };
+}

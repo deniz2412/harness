@@ -26,6 +26,10 @@
         <span>Repository <span class="muted">(owner/name)</span></span>
         <input class="input" @bind="_repo" placeholder="e.g. deniz2412/test-repo-harness" />
     </label>
+    <label class="fld">
+        <span>Team <span class="muted">(optional — resolves a team's namespaced workflow/agent override)</span></span>
+        <input class="input" @bind="_team" placeholder="e.g. payments" />
+    </label>
     <div class="two-col">
         <label class="fld">
             <span>Pull request # <span class="muted">(optional)</span></span>
@@ -52,14 +56,30 @@
 </section>
 
 @code {
+    // Prefilled when arriving from a catalog workflow ("/launch?workflow=pr-review&team=payments").
+    // The catalog passes the BARE workflow name + optional team (the M7 model), not the resolved
+    // loader name — StartAsync resolves (name, team) to the concrete definition.
+    [SupplyParameterFromQuery(Name = "workflow")]
+    private string? WorkflowParam { get; set; }
+
+    [SupplyParameterFromQuery(Name = "team")]
+    private string? TeamParam { get; set; }
+
     private string _workflow = "";
     private string _repo = "";
+    private string _team = "";
     private int? _pr;
     private int? _issue;
     private string _initiator = "";
     private bool _busy;
     private string? _message;
     private bool _ok;
+
+    protected override void OnInitialized()
+    {
+        if (!string.IsNullOrWhiteSpace(WorkflowParam)) _workflow = WorkflowParam.Trim();
+        if (!string.IsNullOrWhiteSpace(TeamParam)) _team = TeamParam.Trim();
+    }
 
     private async Task StartAsync()
     {
@@ -74,8 +94,9 @@
         try
         {
             var initiator = string.IsNullOrWhiteSpace(_initiator) ? null : _initiator.Trim();
+            var team = string.IsNullOrWhiteSpace(_team) ? null : _team.Trim();
             var outcome = await Coordinator.StartAsync(
-                _workflow.Trim(), _repo.Trim(), _pr, _issue, initiator);
+                _workflow.Trim(), _repo.Trim(), _pr, _issue, initiator, team);
             switch (outcome.Status)
             {
                 case StartStatus.Started when outcome.Run is not null:
@@ -92,6 +113,10 @@
                 case StartStatus.BadWorkflow:
                     _ok = false;
                     _message = "The workflow could not be loaded: " + (outcome.Error ?? "unknown error") + ".";
+                    break;
+                case StartStatus.PolicyFloorBlocked:
+                    _ok = false;
+                    _message = "The workflow is refused by the org policy floor: " + (outcome.Error ?? "outside the org ceiling") + ".";
                     break;
             }
         }

@@ -167,6 +167,14 @@ builder.Services.AddSingleton<DagExecutor>();
 builder.Services.AddSingleton<IRunQueries>(sp => new RunQueries(
     sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>(),
     paths["AuditPayloads"]!, sp.GetRequiredService<AuditEmitter>()));
+// F2 workflow catalog read model: browse workflows (parsed from YAML via the production loader, so
+// agent_refs are merged and shas stamped as a run would see), render one's DAG, and per-workflow run
+// stats. A read-only client seam like IRunQueries.
+builder.Services.AddSingleton<IWorkflowCatalogQueries>(sp => new WorkflowCatalogQueries(
+    sp.GetRequiredService<WorkflowCatalog>(),
+    sp.GetRequiredService<WorkflowLoader>(),
+    paths["Workflows"]!,
+    sp.GetRequiredService<IDbContextFactory<HarnessDbContext>>()));
 builder.Services.AddSingleton<IWorkflowRunner>(sp => new DagWorkflowRunner(
     sp.GetRequiredService<DagExecutor>()));
 builder.Services.AddSingleton<IRunCoordinator>(sp => new RunCoordinator(
