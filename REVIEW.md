@@ -5,6 +5,40 @@ milestone; newest first.
 
 ---
 
+## F4 — Suite dashboards + visual builder (2026-07-25)
+
+Independent review gate audited the full F4 diff `6c19704..HEAD` (a YAML emitter + its tests + a
+dashboard read model + its tests + 2 Blazor pages; 3 modified shared files — 2 DI lines, nav links,
+css). Verdict: **no MAJORs, no invariant violation, zero scope creep.** The three invariant-critical
+items are clean: the **visual builder never executes and is not a second source of truth** (its only
+backend calls are the pure `WorkflowYamlWriter.ToYaml` and the F3 `IWorkbenchService.Validate`; node
+x/y positions are UI-only and never enter the emitted YAML; no `IRunCoordinator`/executor/git/file
+write), **the dashboards are read-only** (`AsNoTracking` aggregates, no writes/model), and **no XSS**
+(no `MarkupString` on any run/workflow/author-derived value; emitted YAML in a readonly textarea). The
+emitter round-trips (Load→ToYaml→LoadFromText) across four shipped workflows omitting sha/nulls/defaults
+and emitting `agent_ref` alone; the dashboard guards every division and shows spend honestly as 0
+(A7/F8). Confirmed by tests (Engine 91 + Api 41) + clean compile. **In-container render-verify was
+deferred on a Docker Desktop engine fault this session (500 on all API calls)** — an environment issue,
+not an F4 defect; to be confirmed when Docker recovers.
+
+### MINOR — fixed
+
+- **F4-min-1 — round-trip test omitted the load-bearing loop/gate fields.** `WorkflowYamlWriterTests`
+  asserted id/kind/depends_on/gate/prompt/tools/model_tier fidelity but not `MaxIterations`/`Until`/
+  `FreshContext`/`OutputSchema`/`Approvers`/`Run` — a coverage gap (the emitter already handled them
+  correctly). **Fixed**: the round-trip now asserts all of them survive (agent-loop bounds via
+  test-generation, approvers via the gated writes, bash `run`, output_schema).
+
+### MINORS — carried as tracked residuals
+
+- **F4-min-2 — in-container render-verify of `/dashboard` + `/builder` is pending Docker recovery.** The
+  Docker Desktop engine faulted this session; the pages compile and the read model/emitter are unit-tested.
+- **F4-min-3 — the canvas is a minimal editor.** No property field for a bash node's `run` or custom
+  agent-loop bounds (they emit valid defaults); full authoring is the F3 text workbench. Median gate
+  latency uses the upper-middle element (no interpolation). Spend shows 0 until token/cost is wired (A7/F8).
+
+---
+
 ## F3 — Authoring workbench (2026-07-25)
 
 Independent review gate audited the full F3 diff `f528156..HEAD` (1 new validation service + its tests +

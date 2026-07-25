@@ -45,11 +45,12 @@ Docs (in-repo, canonical for this codebase):
   discounts, exception-swallowing coupon parser with unvalidated input and no tests.
 
 ## Where we are + roadmap
-**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅, M7c ✅, F2 ✅, F3 ✅ — done and verified.**
-(M4 graduation deferred by the human.) Exit checks in `docs/m0-exit-check.md` …
-`docs/m3-exit-check.md`, `docs/f1-exit-check.md`, `docs/m5-exit-check.md`, `docs/m6-exit-check.md`,
-`docs/m7-exit-check.md`, `docs/m7b-exit-check.md`, `docs/m7c-exit-check.md`, `docs/f2-exit-check.md`,
-`docs/f3-exit-check.md`; review gates in `REVIEW.md`.
+**M0 ✅, M1 ✅, M2 ✅, M3 ✅, F1 ✅, M5 ✅, M6 ✅ (3 of 4), M7 ✅, M7b ✅, M7c ✅, F2 ✅, F3 ✅, F4 ✅ — done.**
+**The PoC-buildable roadmap (M0–M7c + F1–F4) is complete.** (M4/M8 graduation deferred by the human.)
+Exit checks in `docs/m0-exit-check.md` … `docs/m3-exit-check.md`, `docs/f1-exit-check.md`,
+`docs/m5-exit-check.md`, `docs/m6-exit-check.md`, `docs/m7-exit-check.md`, `docs/m7b-exit-check.md`,
+`docs/m7c-exit-check.md`, `docs/f2-exit-check.md`, `docs/f3-exit-check.md`, `docs/f4-exit-check.md`;
+review gates in `REVIEW.md`.
 - **M1** landed: data-driven secret ruleset + permission-ceiling enforcement; human-gate mechanics;
   workflow+prompt content-hash pinning; every tool call audited/policed at one fail-closed seam;
   EF migrations; `harness-audit` CLI; tamper-evident hash chain (metadata-bound + per-run head
@@ -158,14 +159,24 @@ Docs (in-repo, canonical for this codebase):
   prompt-diff editing is deferred. Review caught + fixed one minor (cyclic workflows now rejected).
   Demonstrated: service unit-tested vs the real floor/catalog; `/authoring` renders in-container. 521 tests.
 
-**Next: F4 — suite dashboards + (optional) visual builder** (product-vision §5/§6): org/team dashboards
-over the audit trail — spend, run volumes, gate latency, eval scores over time (the M2 golden-run
-harness feeds this); and, only here and only as a **YAML-emitting** layer, an optional drag-and-drop
-workflow builder (sugar over the artifact, never a second source of truth). A frontend increment; mostly
-reads. M4 (graduation to real infra) is deferred by the human. Do NOT start F4 without explicit
-go-ahead. After F4, the roadmap reaches **M9+ business packs** (post-graduation only). Open tails: M6's
-`threat-model-draft` live PR + M7/M7b/M7c completion runs all need an Anthropic **credit top-up**;
-M6's `sast-triage` stays descoped. All are documentation-clean, not blockers.
+- **F4** shipped the **suite dashboards + visual builder** — the last frontend increment (Blazor):
+  `WorkflowYamlWriter` (the loader's inverse — WorkflowDefinition → canonical YAML, sha/nulls/defaults
+  omitted, `agent_ref` emitted alone; round-trip-tested); `IDashboardQueries` (read-only aggregates —
+  run volumes, status, durations, gate latency, per-workflow success, spend honestly 0 per A7/F8);
+  `/dashboard` (pure-CSS/SVG charts); and `/builder` (a drag-and-drop DAG canvas — pointer-delta drag,
+  SVG edges, connect mode, property panel — whose "Emit YAML & validate" runs `ToYaml` → the F3
+  workbench, executing/writing nothing, positions never in the YAML). Review clean (builder-never-
+  executes, dashboards read-only, no-XSS all pass); one minor fixed. 530 tests. **In-container
+  render-verify of the two pages is pending Docker Desktop recovery** (its engine faulted during
+  integration — an environment issue, not F4).
+
+**Next: none in the PoC.** With F4 the **PoC-buildable roadmap is complete** (M0–M7c + F1–F4). What
+remains is **M4/M8 graduation** (real infra — OpenShift, Vault, SIEM, SSO) and **M9+ business packs**
+(post-graduation only, product-vision §5b) — both gated on the human's graduation decision (new
+infrastructure, spend, external accounts), not another in-place milestone. **Open tails to clear first**
+(all documentation-clean, not blockers): re-verify the F4 pages once Docker recovers; and a single
+Anthropic **credit top-up** unblocks the four deferred live demos at once — M6 `threat-model-draft`'s
+gated PR and the M7/M7b/M7c completion runs. M6's `sast-triage` stays descoped.
 
 Open residuals later milestones should weigh (tracked in `REVIEW.md`/`docs/threat-model.md`): no API
 auth + caller-supplied initiator (F1), runner egress (F11, closes with the container runner),
@@ -173,12 +184,12 @@ least-privilege DB role (F4), and token/cost never populated on audit events (A7
 shows 0 until it is wired).
 
 Details in `docs/design-spec.md` §5, extended table in `docs/product-vision.md` §6:
-- **F4 — suite dashboards + (optional) visual builder** (product-vision §5): org/team dashboards (spend,
-  run volumes, gate latency, eval scores over time) over the audit trail; and, only as a YAML-emitting
-  layer, an optional drag-and-drop workflow builder — sugar over the artifact, never a second source of
-  truth. Mostly reads.
-- **Vision horizon (product-vision §6):** M9+ business packs (compliance/risk/IT-ops/knowledge) —
-  post-graduation (M8) only.
+- **M4/M8 — graduation** (design-spec §5, deferred by the human): real infra — OpenShift, Vault, SIEM,
+  SSO — and multi-team operation. A real-infra checkpoint (new spend/accounts/token-scopes); taken up
+  when the platform graduates off the workstation.
+- **M9+ business packs** (product-vision §5b/§6): compliance/risk/IT-ops/knowledge workflow packs —
+  post-graduation (M8) only, after a data-classification review. Same engine, same write ceiling
+  (draft-for-approval), same policy floor.
 - **M4 — deferred:** graduation to real infra (OpenShift, Vault, SIEM, SSO). Real-infra checkpoint,
   taken up when the platform graduates off the workstation.
 

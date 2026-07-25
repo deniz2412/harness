@@ -50,6 +50,12 @@ public class WorkflowYamlWriterTests
             Assert.Equal(a.PromptRef, b.PromptRef);          // for agent_ref nodes, the re-merged prompt
             Assert.Equal(a.Tools, b.Tools);                  // for agent_ref nodes, the re-merged tools
             Assert.Equal(a.ModelTier, b.ModelTier);
+            Assert.Equal(a.OutputSchema, b.OutputSchema);
+            Assert.Equal(a.Run, b.Run);                      // bash node command
+            Assert.Equal(a.Until, b.Until);                  // agent-loop bound
+            Assert.Equal(a.MaxIterations, b.MaxIterations);  // agent-loop bound (test-generation)
+            Assert.Equal(a.FreshContext, b.FreshContext);    // agent-loop
+            Assert.Equal(a.Approvers, b.Approvers);          // human-gate approvers
         }
         // NOTE: the sha is over exact file bytes, and the emitted YAML is not byte-identical to the
         // original file (comments stripped, canonical formatting) — so the round-trip preserves the

@@ -324,7 +324,7 @@ every service's PR is written against the same standards, so multi-repo changes 
 | **K1** | Shared knowledge base — trusted, org/team/workspace-scoped standards injected into agents (§5d.A) | with/after M7 |
 | **W1** | Multi-repo workspaces — allowlisted repo groups, per-repo worktrees + PRs, cross-repo via cascade (§5d.B) | after M3 + P0 |
 | M4/M8 | Graduation — real infra (OpenShift, Vault, SIEM, SSO), multi-team operation | deferred (last) |
-| **F4** | Dashboards + (optional) visual builder | **next** (last frontend increment) |
+| **F4** | Dashboards + (optional) visual builder | ✅ done (suite dashboards + a YAML-emitting drag-and-drop builder; last frontend increment) |
 | **M9+** | Business workflow packs (compliance, risk, IT ops, knowledge) — §5b, post-graduation only | horizon |
 
 **T1 note (inline line comments):** currently `pr-review`'s `post` node uses `github.pr_comment`
