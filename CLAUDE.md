@@ -166,9 +166,9 @@ review gates in `REVIEW.md`.
   `/dashboard` (pure-CSS/SVG charts); and `/builder` (a drag-and-drop DAG canvas — pointer-delta drag,
   SVG edges, connect mode, property panel — whose "Emit YAML & validate" runs `ToYaml` → the F3
   workbench, executing/writing nothing, positions never in the YAML). Review clean (builder-never-
-  executes, dashboards read-only, no-XSS all pass); one minor fixed. 530 tests. **In-container
-  render-verify of the two pages is pending Docker Desktop recovery** (its engine faulted during
-  integration — an environment issue, not F4).
+  executes, dashboards read-only, no-XSS all pass); one minor fixed. 530 tests. Both pages
+  render-verified in-container (`/dashboard` shows real session aggregates; `/builder` the canvas +
+  emit). Live pr-review *completion* regression still gated on a gateway credit top-up.
 
 **Next: none in the PoC.** With F4 the **PoC-buildable roadmap is complete** (M0–M7c + F1–F4). What
 remains is **M4/M8 graduation** (real infra — OpenShift, Vault, SIEM, SSO) and **M9+ business packs**

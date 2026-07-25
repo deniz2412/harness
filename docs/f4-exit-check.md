@@ -1,13 +1,12 @@
 # F4 Exit Check — Report
 
 **Date:** 2026-07-25
-**Verdict:** ✅ **PASS (offline gates; in-container render-verify deferred on a Docker Desktop fault)** —
-the last frontend increment: read-only **suite dashboards** (run volumes, status, durations, gate
-latency, spend) and a **full drag-and-drop visual builder** whose only backend touch is a pure YAML
-emitter + the F3 workbench validator. The builder is sugar over the YAML artifact — it executes
-nothing, writes nothing, publishes nothing, and node positions are not part of the YAML. Demonstrated
-by tests + clean compile; the page render-verify is pending Docker Desktop recovery (an environment
-fault this session, not an F4 defect).
+**Verdict:** ✅ **PASS** — the last frontend increment: read-only **suite dashboards** (run volumes,
+status, durations, gate latency, spend) and a **full drag-and-drop visual builder** whose only backend
+touch is a pure YAML emitter + the F3 workbench validator. The builder is sugar over the YAML artifact —
+it executes nothing, writes nothing, publishes nothing, and node positions are not part of the YAML.
+Demonstrated by tests + clean compile, and **render-verified in-container** (`/dashboard` renders real
+aggregates, `/builder` renders the canvas + emit) once Docker Desktop recovered.
 
 ## Criterion & confirmed scope
 
@@ -50,11 +49,13 @@ eval-result store.
   the loader accepts) and `DashboardQueriesTests` (3 — status/duration/gate-latency summary, per-workflow
   success rate, zero-filled daily volume, `TotalCostUsd == 0`). Full suite **530 green**; solution builds
   clean; both pages compile.
-- **In-container render-verify: DEFERRED.** Docker Desktop's engine faulted this session (HTTP 500 on all
-  API calls — could not build/boot the image or curl the pages). This is an environment fault, not an F4
-  issue; the pages compile and the F1–F3 precedent (UI is a thin, render-verified client) holds. To be
-  confirmed once Docker Desktop recovers: `GET /dashboard` and `GET /builder` render, and the builder's
-  Emit→Validate round-trips through the workbench.
+- **In-container render-verify: DONE** (after Docker Desktop recovered later the same day). Rebuilt the
+  stack; the boot sweep stayed clean (`LoadFromText` did not regress the core loader). `GET /dashboard`
+  renders **real aggregates** from the session's run history — by-status (11 Completed, 9 Failed, 1
+  Running, 1 AwaitingApproval), the run-volume chart, and a per-workflow table linking every workflow
+  exercised — with spend honestly $0.00 and the A7/F8 note. `GET /builder` renders the canvas, palette,
+  connect toggle, and the Emit-YAML action. (The full live pr-review *completion* regression remains a
+  separate credit block — the gateway is out of Anthropic credits — not a Docker or F4 issue.)
 
 ## Review gate + fix
 
@@ -88,8 +89,6 @@ infrastructure, spend, and accounts), not another in-place milestone.
 
 ## Residuals carried forward (see `REVIEW.md`)
 
-- **In-container render-verify of `/dashboard` + `/builder` pending Docker Desktop recovery** (the engine
-  faulted this session).
 - Spend/token dashboards show 0 until token/cost is wired (A7/F8).
 - The canvas is a minimal editor (no `run`/custom-loop-bounds fields — the F3 text workbench covers full
   authoring); median latency uses no interpolation.

@@ -31,8 +31,10 @@ not an F4 defect; to be confirmed when Docker recovers.
 
 ### MINORS — carried as tracked residuals
 
-- **F4-min-2 — in-container render-verify of `/dashboard` + `/builder` is pending Docker recovery.** The
-  Docker Desktop engine faulted this session; the pages compile and the read model/emitter are unit-tested.
+- **F4-min-2 — in-container render-verify — RESOLVED.** The Docker Desktop engine faulted during F4
+  integration; once it recovered (same day) the stack was rebuilt and both pages render-verified —
+  `/dashboard` shows real session aggregates (11 Completed / 9 Failed / 1 Running / 1 AwaitingApproval,
+  per-workflow history, spend $0 per A7/F8), `/builder` renders the canvas + emit, boot sweep clean.
 - **F4-min-3 — the canvas is a minimal editor.** No property field for a bash node's `run` or custom
   agent-loop bounds (they emit valid defaults); full authoring is the F3 text workbench. Median gate
   latency uses the upper-middle element (no interpolation). Spend shows 0 until token/cost is wired (A7/F8).
