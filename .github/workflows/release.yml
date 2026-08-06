@@ -1,0 +1,114 @@
+# CD — build, scan, sign and publish the harness container image, then (optionally) deploy behind a
+# HUMAN-APPROVAL gate. This mirrors the platform's core invariant: nothing externally visible happens
+# without a human gate. The image build/push is automatic on a version tag; the deploy waits for a
+# reviewer on the protected `production` environment. The deploy step itself is stubbed until the
+# platform graduates onto real infra (M4/M8) — see docs/f4-exit-check.md and the infra checklist.
+#
+# Prereqs: pin actions to full commit SHAs (see ci.yml). Configure a GitHub Environment named
+# `production` with required reviewers so the deploy job blocks on approval.
+name: release
+
+on:
+  push:
+    tags: ["v*"]         # e.g. v0.1.0
+  workflow_dispatch: {}   # or trigger manually
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_VERSION: "8.0.x"
+  IMAGE: ghcr.io/${{ github.repository_owner }}/harness
+
+jobs:
+  # Re-run the same gates before we publish anything — a release must not ship an untested/leaky tree.
+  verify:
+    name: build + test + scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "${{ env.DOTNET_VERSION }}" }
+      - run: dotnet test Harness.sln -c Release
+      - name: Secret scan (pinned + verified)
+        run: |
+          set -euo pipefail
+          VER=8.18.4; SHA=ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d
+          curl -sSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          echo "${SHA}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks && chmod +x gitleaks
+          ./gitleaks detect --source . --redact --no-banner --exit-code 1
+
+  image:
+    name: build + push + sign image
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # push to GHCR
+      id-token: write        # keyless cosign signing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image metadata (tags/labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=ref,event=tag
+            type=sha,format=long
+      - name: Build + push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.harness
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true      # SLSA build provenance attestation
+          sbom: true            # publish an SBOM with the image
+      # Scan the built image for OS/library CVEs before it can be deployed (fail-closed on high/critical).
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@master   # pin to a SHA in production
+        with:
+          image-ref: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          exit-code: "1"
+          severity: "HIGH,CRITICAL"
+          ignore-unfixed: "true"
+      - name: Sign image (cosign, keyless)
+        uses: sigstore/cosign-installer@v3
+      - run: cosign sign --yes "${IMAGE}@${DIGEST}"
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+
+  deploy:
+    name: deploy (human-gated)
+    needs: image
+    runs-on: ubuntu-latest
+    # The `production` environment must be configured with required reviewers. GitHub pauses the run
+    # here until a human approves — the same human-gate posture the workflows themselves enforce.
+    environment: production
+    permissions:
+      contents: read
+    steps:
+      - name: Deploy to OpenShift (STUB — wired at graduation, M4/M8)
+        run: |
+          echo "Deploy gate approved. Real deploy is wired when the platform graduates onto real infra:"
+          echo "  1. oc login \"$OPENSHIFT_SERVER\" --token \"$OPENSHIFT_TOKEN\"   # creds from GitHub secrets / OIDC"
+          echo "  2. helm upgrade --install harness ./deploy/helm --namespace harness \\"
+          echo "       --set image=${IMAGE}@<digest> --values ./deploy/values.\$ENV.yaml"
+          echo "  3. Secrets (GATEWAY_MASTER_KEY, GITHUB_TOKEN, ANTHROPIC_API_KEY, POSTGRES_PASSWORD) come"
+          echo "     from Vault via CSI/ESO — NEVER from repo secrets or .env."
+          echo "  4. Post-deploy smoke: POST /runs pr-review against the test repo, GET /runs/{id}/verify intact."
+        env:
+          IMAGE: ${{ env.IMAGE }}

@@ -1,0 +1,131 @@
+# CI — runs on every PR and every push to main. This is the gate: build, the full offline test suite
+# (530 tests, no services needed — they use the EF in-memory provider), a pinned+verified secret scan,
+# a dependency-vulnerability audit, and a container-image build. It mirrors the platform's own
+# fail-closed philosophy — a secret or a known-vulnerable dependency FAILS the build, it does not warn.
+#
+# SUPPLY CHAIN: for a bank-grade repo, pin every third-party action to a full commit SHA (e.g.
+# `actions/checkout@<40-hex-sha> # v4.2.2`), not a moving tag. The tags below are placeholders to make
+# that one search-and-replace; gitleaks is already pinned by version + SHA-256 as the platform requires.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Least privilege: CI only needs to read the repo. No token can write anything from here.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_VERSION: "8.0.x"
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+
+jobs:
+  build-test:
+    name: build + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: Restore
+        run: dotnet restore Harness.sln
+      - name: Build (Release, warnings as errors)
+        run: dotnet build Harness.sln -c Release --no-restore -warnaserror
+      - name: Test (offline — EF in-memory, no gateway, no DB)
+        run: >
+          dotnet test Harness.sln -c Release --no-build
+          --logger "trx;LogFileName=test-results.trx"
+          --collect:"XPlat Code Coverage"
+          --results-directory ./TestResults
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ./TestResults
+          retention-days: 14
+
+  secret-scan:
+    name: secret scan (gitleaks, pinned + verified)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so a secret in ANY commit is caught, not just the tip
+      # Same binary the runner image ships (docker/Dockerfile.harness): pinned by version AND SHA-256.
+      # A supply-chain-sensitive download is verified, never trusted.
+      - name: Install gitleaks 8.18.4 (verified)
+        run: |
+          set -euo pipefail
+          VER=8.18.4
+          SHA=ba6dbb656933921c775ee5a2d1c13a91046e7952e9d919f9bac4cec61d628e7d
+          curl -sSL -o gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VER}/gitleaks_${VER}_linux_x64.tar.gz"
+          echo "${SHA}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks && chmod +x gitleaks
+      - name: Scan (fail-closed on any finding; values redacted)
+        run: ./gitleaks detect --source . --redact --no-banner --exit-code 1
+
+  dependency-audit:
+    name: dependency vulnerability audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - name: dotnet list --vulnerable (fail on any advisory)
+        run: |
+          set -euo pipefail
+          dotnet restore Harness.sln
+          report=$(dotnet list Harness.sln package --vulnerable --include-transitive 2>&1 || true)
+          echo "$report"
+          # `dotnet list` exits 0 even when vulnerabilities exist, so gate on the marker line.
+          if echo "$report" | grep -q "has the following vulnerable packages"; then
+            echo "::error::Known-vulnerable dependencies found — see the report above."
+            exit 1
+          fi
+          echo "No known-vulnerable dependencies."
+
+  pinned-versions:
+    name: no floating package versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject wildcard PackageReference versions (invariant — pin all versions)
+        run: |
+          set -euo pipefail
+          if grep -rEn 'Version="[^"]*\*' --include=*.csproj --include=*.props . ; then
+            echo "::error::Floating package version(s) found — pin every dependency."
+            exit 1
+          fi
+          echo "All package versions are pinned."
+
+  docker-build:
+    name: container image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the harness image (no push — verifies the Dockerfile + the pinned gitleaks SHA)
+        run: docker build -f docker/Dockerfile.harness -t harness:ci .
+
+  format:
+    name: format (advisory)
+    runs-on: ubuntu-latest
+    # Advisory until the codebase is fully `dotnet format`-clean; then drop continue-on-error to make it a gate.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+      - run: dotnet format Harness.sln --verify-no-changes --severity warn
